@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 
-const TOKEN = "MTQ5Mzg0MzU2NDY0NjQ5ODM5NA.GTmHoJ.DPv64nbvJnPv42scaaWwgL22Oucx-U3r_DMwBo";
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhuy6Mno8T4kPlahs5rcM6j7WyD11k-bs8GuJ9CxpXQ8A0Z29_w18zRI4A9Sq1JvSfsA/exec";
+const TOKEN = process.env.TOKEN;
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 
 const client = new Client({
   intents: [
