@@ -20,7 +20,19 @@ client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
     if (!message.content.startsWith("+")) return;
 
-    const teamName = message.channel.parent?.name;
+    const categoryName = message.channel.parent?.name || "";
+
+// 拆 Company 和 Team
+const parts = categoryName.split("|");
+
+const companyName = parts[0]?.trim();
+const teamName = parts[1]?.trim() || categoryName;
+
+// 防呆
+if (!companyName || !teamName) {
+  await message.reply("❌ 分類格式錯誤，請用：公司 | 組名");
+  return;
+}
 
     if (!teamName) {
       await message.reply("❌ 這個 receipt 群沒有放在分類下面，無法自動識別組別");
@@ -46,14 +58,15 @@ client.on("messageCreate", async (message) => {
       "| [內容]", message.content
     );
 
-    const payload = {
-      team: teamName,
-      member: member,
-      amount: Number(amount),
-      source: source,
-      msgId: message.id,
-      reporter: reporter
-    };
+   const payload = {
+  company: companyName,
+  team: teamName,
+  member: member,
+  amount: Number(amount),
+  source: source,
+  msgId: message.id,
+  reporter: message.member?.displayName || message.author.username
+};
 
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
