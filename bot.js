@@ -67,8 +67,6 @@ if (!companyName || !teamName) {
   msgId: message.id,
   reporter: message.member?.displayName || message.author.username
 };
-
-    console.log("PAYLOAD:", payload);
     
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
