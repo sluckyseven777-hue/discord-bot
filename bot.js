@@ -18,56 +18,60 @@ client.on("clientReady", () => {
 client.on("messageCreate", async (message) => {
   try {
     if (message.author.bot) return;
-    if (!message.content.startsWith("+")) return;
 
-    const categoryName = message.channel.parent?.name || "";
+    const content = message.content.trim();
 
-// 拆 Company 和 Team
-const parts = categoryName.split("|");
+    if (!content.startsWith("+")) return;
 
-const companyName = parts[0]?.trim();
-const teamName = parts[1]?.trim() || categoryName;
-
-// 防呆
-if (!companyName || !teamName) {
-  await message.reply("❌ 分類格式錯誤，請用：公司 | 組名");
-  return;
-}
-
-    if (!teamName) {
-      await message.reply("❌ 這個 receipt 群沒有放在分類下面，無法自動識別組別");
+    // 不允許多行
+    if (content.includes("\n")) {
+      await message.reply("❌ 格式錯誤，請只寫一行：+9000 LV16 XIAOYI");
       return;
     }
 
-    const match = message.content.match(/^\+(\d+)\s+(\S+)\s+(.+)$/);
+    // 自動讀取 Discord 分類：LV | Rhino Team
+    const categoryName = message.channel.parent?.name || "";
+    const parts = categoryName.split("|");
+
+    const companyName = parts[0]?.trim();
+    const teamName = parts[1]?.trim() || categoryName;
+
+    if (!companyName || !teamName) {
+      await message.reply("❌ 分類格式錯誤，請用：公司 | 組名");
+      return;
+    }
+
+    // 嚴格格式：+金額 成員 來源
+    // 例：+9000 LV16 XIAOYI
+    const match = content.match(/^\+(\d+(?:\.\d{1,2})?)\s+((?:LV|LT|MMC)\d+)\s+([A-Za-z0-9 ]+)$/i);
 
     if (!match) {
-      await message.reply("❌ 格式錯誤，請用：+3000 LV1 XIAOYI");
+      await message.reply("❌ 格式錯誤，請用：+9000 LV16 XIAOYI");
       return;
     }
 
-    const amount = match[1];
-    const member = match[2];
-    const source = match[3].trim();
+    const amount = Number(match[1]);
+    const member = match[2].toUpperCase();
+    const source = match[3].trim().toUpperCase();
     const reporter = message.member?.displayName || message.author.username;
 
-    console.log(
-      "[組別]", teamName,
-      "| [頻道]", message.channel.name,
-      "| [發送者]", reporter,
-      "| [內容]", message.content
-    );
+    if (!amount || amount <= 0) {
+      await message.reply("❌ 金額錯誤，請確認金額大於 0");
+      return;
+    }
 
-   const payload = {
-  company: companyName,
-  team: teamName,
-  member: member,
-  amount: Number(amount),
-  source: source,
-  msgId: message.id,
-  reporter: message.member?.displayName || message.author.username
-};
-    
+    const payload = {
+      company: companyName,
+      team: teamName,
+      member: member,
+      amount: amount,
+      source: source,
+      msgId: message.id,
+      reporter: reporter
+    };
+
+    console.log("PAYLOAD:", payload);
+
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       headers: {
@@ -81,7 +85,16 @@ if (!companyName || !teamName) {
     if (result.ok && result.duplicate) {
       await message.reply("⚠️ 這筆訊息已經記錄過了，沒有重複入賬");
     } else if (result.ok) {
-      await message.reply("✅ 已記錄：RM " + Number(amount).toLocaleString("en-US") + " | " + member + " | " + source + " | " + teamName);
+      await message.reply(
+        "✅ 已記錄： RM " +
+        amount.toLocaleString("en-US") +
+        " | " +
+        member +
+        " | " +
+        source +
+        " | " +
+        teamName
+      );
     } else {
       console.log(result);
       await message.reply("❌ 寫入失敗，請檢查 Apps Script");
