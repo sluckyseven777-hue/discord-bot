@@ -21,13 +21,20 @@ client.on("messageCreate", async (message) => {
 
     const lowerContent = message.content.trim().toLowerCase();
 
-    if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
+   if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
   if (!message.reference || !message.reference.messageId) {
     await message.reply("❌ 請 Reply 要撤銷的那一筆報數，再輸入 void");
     return;
   }
 
-  const targetMsgId = message.reference.messageId;
+  let targetMsgId = message.reference.messageId;
+
+  const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
+
+  if (repliedMsg.author.bot && repliedMsg.reference?.messageId) {
+    targetMsgId = repliedMsg.reference.messageId;
+  }
+
   const operator = message.member?.displayName || message.author.username;
 
   const response = await fetch(APPS_SCRIPT_URL, {
@@ -49,7 +56,7 @@ client.on("messageCreate", async (message) => {
   } else if (result.ok && result.alreadyVoided) {
     await message.reply("⚠️ 此筆已經撤銷過了");
   } else {
-    await message.reply("❌ 找不到要撤銷的入賬，請確認你 Reply 的是原報數消息");
+    await message.reply("❌ 找不到要撤銷的入賬，請確認你 Reply 的是原報數或 Bot 已記錄訊息");
     console.log(result);
   }
 
