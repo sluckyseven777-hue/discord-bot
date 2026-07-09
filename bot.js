@@ -2,6 +2,9 @@ const { Client, GatewayIntentBits } = require('discord.js');
 
 const TOKEN = process.env.TOKEN;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
+console.log("==============");
+console.log(process.env.APPS_SCRIPT_URL);
+console.log("==============");
 
 const client = new Client({
   intents: [
