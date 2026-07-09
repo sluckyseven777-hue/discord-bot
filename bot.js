@@ -37,6 +37,8 @@ async function postToAppsScript(payload) {
 
 client.on("clientReady", () => {
   console.log("Bot 已上线：" + client.user.tag);
+   console.log("===== APPS SCRIPT URL =====");
+  console.log(APPS_SCRIPT_URL);
 });
 
 client.on("messageCreate", async (message) => {
