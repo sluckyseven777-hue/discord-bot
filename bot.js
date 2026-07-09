@@ -50,6 +50,7 @@ client.on("messageCreate", async (message) => {
   });
 
   const result = await response.json();
+     console.log("APPS_RESULT:", result);
 
   if (result.ok && result.voided) {
     await message.reply("✅ 已撤銷此筆入賬，請重新報正確金額");
