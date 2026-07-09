@@ -17,6 +17,43 @@ client.on("clientReady", () => {
 
 client.on("messageCreate", async (message) => {
   try {
+      const lowerContent = message.content.trim().toLowerCase();
+
+if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
+  if (!message.reference || !message.reference.messageId) {
+    await message.reply("❌ 請 Reply 要撤銷的那一筆報數，再輸入 void");
+    return;
+  }
+
+  const targetMsgId = message.reference.messageId;
+  const operator = message.member?.displayName || message.author.username;
+
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      action: "VOID_ENTRY",
+      msgId: targetMsgId,
+      operator: operator
+    })
+  });
+
+  const result = await response.json();
+
+  if (result.ok && result.voided) {
+    await message.reply("✅ 已撤銷此筆入賬，請重新報正確金額");
+  } else if (result.ok && result.alreadyVoided) {
+    await message.reply("⚠️ 此筆已經撤銷過了");
+  } else {
+    await message.reply("❌ 找不到要撤銷的入賬，請確認你 Reply 的是原報數消息");
+    console.log(result);
+  }
+
+  return;
+}
+    
     if (message.author.bot) return;
 
     const content = message.content.trim();
@@ -103,6 +140,21 @@ client.on("messageCreate", async (message) => {
   } catch (error) {
     console.error(error);
     await message.reply("❌ 系統錯誤，請檢查終端");
+  }
+});
+
+client.on("messageUpdate", async (oldMessage, newMessage) => {
+  try {
+    if (newMessage.author?.bot) return;
+
+    const content = newMessage.content?.trim() || "";
+
+    if (!content.startsWith("+")) return;
+
+    await newMessage.reply("⚠️ 已入賬報數不接受 Edit 修改。若報錯，請 Reply 原報數輸入 void 撤銷，再重新報正確金額。");
+
+  } catch (err) {
+    console.error("messageUpdate error:", err);
   }
 });
 
