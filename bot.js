@@ -37,18 +37,19 @@ client.on("messageCreate", async (message) => {
 
   const operator = message.member?.displayName || message.author.username;
 
-  const response = await fetch(APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      action: "VOID_ENTRY",
-      msgId: targetMsgId,
-      operator: operator
-    })
-  });
-
+const response = await fetch(APPS_SCRIPT_URL, {
+  method: "POST",
+  redirect: "follow",
+  headers: {
+    "Content-Type": "text/plain;charset=utf-8"
+  },
+  body: JSON.stringify({
+    action: "VOID_ENTRY",
+    msgId: targetMsgId,
+    operator: operator
+  })
+});
+     
   const result = await response.json();
      console.log("APPS_RESULT:", result);
 
