@@ -17,9 +17,11 @@ client.on("clientReady", () => {
 
 client.on("messageCreate", async (message) => {
   try {
-      const lowerContent = message.content.trim().toLowerCase();
+    if (message.author.bot) return;
 
-if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
+    const lowerContent = message.content.trim().toLowerCase();
+
+    if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
   if (!message.reference || !message.reference.messageId) {
     await message.reply("❌ 請 Reply 要撤銷的那一筆報數，再輸入 void");
     return;
@@ -54,8 +56,6 @@ if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
   return;
 }
     
-    if (message.author.bot) return;
-
     const content = message.content.trim();
 
     if (!content.startsWith("+")) return;
