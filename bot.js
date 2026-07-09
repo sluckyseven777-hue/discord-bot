@@ -25,7 +25,7 @@ client.on("messageCreate", async (message) => {
 
     // 不允許多行
     if (content.includes("\n")) {
-      await message.reply("❌ 格式錯誤，請只寫一行：+9000 LV16 XIAOYI");
+      await message.reply("❌ 格式錯誤，請只寫一行：+xxx LVxx XIAOYI");
       return;
     }
 
@@ -46,7 +46,7 @@ client.on("messageCreate", async (message) => {
     const match = content.match(/^\+(\d+(?:\.\d{1,2})?)\s+((?:LV|LT|MMC)\d+)\s+([A-Za-z0-9 ]+)$/i);
 
     if (!match) {
-      await message.reply("❌ 格式錯誤，請用：+9000 LV16 XIAOYI");
+      await message.reply("❌ 格式錯誤，請用：+xxx LVxx XIAOYI");
       return;
     }
 
