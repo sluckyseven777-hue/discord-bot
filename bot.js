@@ -125,13 +125,36 @@ async function resolveVoidTargetMessageId(message) {
   return null;
 }
 
+async function deleteMessageSafely(message) {
+  if (!message) return;
+
+  try {
+    await message.delete();
+  } catch (error) {
+    console.error(
+      "DELETE MESSAGE FAILED:",
+      error?.message || error
+    );
+  }
+}
+
+function deleteMessageLater(message, delay = 2000) {
+  setTimeout(() => {
+    deleteMessageSafely(message);
+  }, delay);
+}
+
 async function handleVoid(message) {
   const targetMsgId = await resolveVoidTargetMessageId(message);
 
   if (!targetMsgId) {
-    await message.reply(
+    const replyMessage = await message.reply(
       "❌ 請 Reply 原報數或 Bot 的已記錄訊息，再輸入 void"
     );
+
+    // 輸入錯誤時，只清除 void 指令和錯誤提示
+    deleteMessageLater(message, 2000);
+    deleteMessageLater(replyMessage, 2000);
     return;
   }
 
@@ -145,29 +168,65 @@ async function handleVoid(message) {
 
   console.log("VOID RESULT:", result);
 
+  // 成功撤銷
   if (result.ok && result.voided) {
-    await message.reply(
+    const replyMessage = await message.reply(
       `✅ 已撤銷此筆入賬｜操作人：${operator}\n請重新報正確金額`
     );
+
+    // 先取得原報數
+    let originalMessage = null;
+
+    try {
+      originalMessage = await message.channel.messages.fetch(targetMsgId);
+    } catch (error) {
+      console.error(
+        "FETCH ORIGINAL MESSAGE FAILED:",
+        error?.message || error
+      );
+    }
+
+    // 立即刪除原報數
+    await deleteMessageSafely(originalMessage);
+
+    // 2 秒後刪除 void 和 Bot 的已撤銷提示
+    deleteMessageLater(message, 2000);
+    deleteMessageLater(replyMessage, 2000);
     return;
   }
 
+  // 已經撤銷過
   if (result.ok && result.alreadyVoided) {
-    await message.reply("⚠️ 此筆已經撤銷過了");
+    const replyMessage = await message.reply(
+      "⚠️ 此筆已經撤銷過了"
+    );
+
+    // 2 秒後刪除 void 和警告
+    deleteMessageLater(message, 2000);
+    deleteMessageLater(replyMessage, 2000);
     return;
   }
 
+  // 找不到入賬
   if (result.error === "MsgID not found") {
-    await message.reply(
+    const replyMessage = await message.reply(
       "❌ 找不到這筆入賬，請確認你 Reply 的是原報數或 Bot 的已記錄訊息"
     );
+
+    deleteMessageLater(message, 3000);
+    deleteMessageLater(replyMessage, 3000);
     return;
   }
 
   console.error("VOID FAILED:", result);
-  await message.reply("❌ 撤銷失敗，請管理員檢查 Render Logs");
-}
 
+  const replyMessage = await message.reply(
+    "❌ 撤銷失敗，請管理員檢查 Render Logs"
+  );
+
+  deleteMessageLater(message, 3000);
+  deleteMessageLater(replyMessage, 3000);
+}
 // ======================================================
 // 报数格式验证
 // ======================================================
