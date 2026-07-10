@@ -1,10 +1,23 @@
 const { Client, GatewayIntentBits } = require("discord.js");
 
+// ======================================================
+// 系统设置
+// ======================================================
+
 const TOKEN = process.env.TOKEN;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 
-if (!TOKEN) throw new Error("Missing TOKEN");
-if (!APPS_SCRIPT_URL) throw new Error("Missing APPS_SCRIPT_URL");
+if (!TOKEN) {
+  throw new Error("缺少 Render 环境变量：TOKEN");
+}
+
+if (!APPS_SCRIPT_URL) {
+  throw new Error("缺少 Render 环境变量：APPS_SCRIPT_URL");
+}
+
+// ======================================================
+// Discord Client
+// ======================================================
 
 const client = new Client({
   intents: [
@@ -13,6 +26,50 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
+// ======================================================
+// 基础工具
+// ======================================================
+
+function getReporter(message) {
+  return message.member?.displayName || message.author.username;
+}
+
+function getCompanyAndTeam(message) {
+  const categoryName = message.channel.parent?.name?.trim() || "";
+  const separatorIndex = categoryName.indexOf("|");
+
+  if (separatorIndex === -1) {
+    return {
+      company: "",
+      team: ""
+    };
+  }
+
+  const company = categoryName
+    .slice(0, separatorIndex)
+    .trim()
+    .toUpperCase();
+
+  const team = categoryName
+    .slice(separatorIndex + 1)
+    .trim();
+
+  return {
+    company,
+    team
+  };
+}
+
+function isVoidCommand(content) {
+  return ["void", "撤銷", "撤销", "cancel"].includes(
+    content.trim().toLowerCase()
+  );
+}
+
+// ======================================================
+// Apps Script API
+// ======================================================
 
 async function postToAppsScript(payload) {
   const response = await fetch(APPS_SCRIPT_URL, {
@@ -24,45 +81,61 @@ async function postToAppsScript(payload) {
     body: JSON.stringify(payload)
   });
 
-  const text = await response.text();
-  console.log("APPS_RAW_RESPONSE:", text.slice(0, 500));
+  const responseText = await response.text();
+
+  console.log("APPS HTTP STATUS:", response.status);
+  console.log("APPS RAW RESPONSE:", responseText.slice(0, 500));
 
   try {
-    return JSON.parse(text);
+    return JSON.parse(responseText);
   } catch {
     return {
       ok: false,
-      error: "Apps Script did not return JSON",
-      raw: text.slice(0, 500)
+      error: "Apps Script 回传的内容不是 JSON",
+      raw: responseText.slice(0, 500)
     };
   }
 }
 
-function getCompanyAndTeam(message) {
-  const categoryName = message.channel.parent?.name || "";
-  const parts = categoryName.split("|");
+// ======================================================
+// 撤销入账
+// ======================================================
 
-  const company = parts[0]?.trim().toUpperCase();
-  const team = parts[1]?.trim() || categoryName.trim();
+async function resolveVoidTargetMessageId(message) {
+  const referencedMessageId = message.reference?.messageId;
 
-  return { company, team };
+  if (!referencedMessageId) {
+    return null;
+  }
+
+  const repliedMessage = await message.channel.messages.fetch(
+    referencedMessageId
+  );
+
+  // Reply 原始报数
+  if (!repliedMessage.author.bot) {
+    return repliedMessage.id;
+  }
+
+  // Reply Bot 的「已记录」回覆
+  if (repliedMessage.reference?.messageId) {
+    return repliedMessage.reference.messageId;
+  }
+
+  return null;
 }
 
 async function handleVoid(message) {
-  if (!message.reference || !message.reference.messageId) {
-    await message.reply("❌ 請 Reply 要撤銷的那一筆報數，再輸入 void");
+  const targetMsgId = await resolveVoidTargetMessageId(message);
+
+  if (!targetMsgId) {
+    await message.reply(
+      "❌ 請 Reply 原報數或 Bot 的已記錄訊息，再輸入 void"
+    );
     return;
   }
 
-  let targetMsgId = message.reference.messageId;
-
-  const repliedMsg = await message.channel.messages.fetch(message.reference.messageId);
-
-  if (repliedMsg.author.bot && repliedMsg.reference?.messageId) {
-    targetMsgId = repliedMsg.reference.messageId;
-  }
-
-  const operator = message.member?.displayName || message.author.username;
+  const operator = getReporter(message);
 
   const result = await postToAppsScript({
     action: "VOID_ENTRY",
@@ -70,10 +143,12 @@ async function handleVoid(message) {
     operator
   });
 
-  console.log("VOID_RESULT:", result);
+  console.log("VOID RESULT:", result);
 
   if (result.ok && result.voided) {
-    await message.reply(`✅ 已撤銷此筆入賬，請重新報正確金額`);
+    await message.reply(
+      `✅ 已撤銷此筆入賬｜操作人：${operator}\n請重新報正確金額`
+    );
     return;
   }
 
@@ -82,73 +157,128 @@ async function handleVoid(message) {
     return;
   }
 
-  await message.reply("❌ 找不到要撤銷的入賬，請確認你 Reply 的是原報數或 Bot 已記錄訊息");
+  if (result.error === "MsgID not found") {
+    await message.reply(
+      "❌ 找不到這筆入賬，請確認你 Reply 的是原報數或 Bot 的已記錄訊息"
+    );
+    return;
+  }
+
+  console.error("VOID FAILED:", result);
+  await message.reply("❌ 撤銷失敗，請管理員檢查 Render Logs");
 }
+
+// ======================================================
+// 报数格式验证
+// ======================================================
+
+function parseReceipt(content) {
+  if (content.includes("\n")) {
+    return {
+      ok: false,
+      error: "❌ 格式錯誤，請只寫一行：+2300 LV39 XIAOYI"
+    };
+  }
+
+  /*
+   * 正确格式：
+   * +2300 LV39 XIAOYI
+   * +500 LT3 96
+   * +1200.50 MMC1 XIAO YI
+   */
+  const match = content.match(
+    /^\+(\d+(?:\.\d{1,2})?)\s+((?:LV|LT|MMC)\d+)\s+([A-Za-z0-9 ]+)$/i
+  );
+
+  if (!match) {
+    return {
+      ok: false,
+      error: "❌ 格式錯誤，請用：+2300 LV39 XIAOYI"
+    };
+  }
+
+  const amount = Number(match[1]);
+  const member = match[2].toUpperCase();
+  const source = match[3].trim().toUpperCase();
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      ok: false,
+      error: "❌ 金額錯誤，請確認金額大於 0"
+    };
+  }
+
+  return {
+    ok: true,
+    amount,
+    member,
+    source
+  };
+}
+
+// ======================================================
+// 正常入账
+// ======================================================
 
 async function handleReceipt(message) {
   const content = message.content.trim();
+  const parsed = parseReceipt(content);
 
-  if (content.includes("\n")) {
-    await message.reply("❌ 格式錯誤，請只寫一行：+2300 LV39 XIAOYI");
+  if (!parsed.ok) {
+    await message.reply(parsed.error);
     return;
   }
 
   const { company, team } = getCompanyAndTeam(message);
 
   if (!company || !team) {
-    await message.reply("❌ 分類格式錯誤，請用：公司 | 組名");
+    await message.reply(
+      "❌ Discord 分類格式錯誤，請使用：公司 | 組名"
+    );
     return;
   }
 
-  const match = content.match(/^\+(\d+(?:\.\d{1,2})?)\s+((?:LV|LT|MMC)\d+)\s+([A-Za-z0-9 ]+)$/i);
-
-  if (!match) {
-    await message.reply("❌ 格式錯誤，請用：+2300 LV39 XIAOYI");
-    return;
-  }
-
-  const amount = Number(match[1]);
-  const member = match[2].toUpperCase();
-  const source = match[3].trim().toUpperCase();
-  const reporter = message.member?.displayName || message.author.username;
-
-  if (!amount || amount <= 0) {
-    await message.reply("❌ 金額錯誤，請確認金額大於 0");
-    return;
-  }
+  const reporter = getReporter(message);
 
   const payload = {
     company,
     team,
-    member,
-    amount,
-    source,
+    member: parsed.member,
+    amount: parsed.amount,
+    source: parsed.source,
     msgId: message.id,
     reporter
   };
 
-  console.log("PAYLOAD:", payload);
+  console.log("RECEIPT PAYLOAD:", payload);
 
   const result = await postToAppsScript(payload);
 
-  console.log("APPS_RESULT:", result);
+  console.log("RECEIPT RESULT:", result);
 
+  // 同一个 Discord MsgID 已经处理过，安静忽略
   if (result.ok && result.duplicate) {
     return;
   }
 
   if (result.ok) {
     await message.reply(
-      `✅ 已記錄： RM ${amount.toLocaleString("en-US")} | ${member} | ${source} | ${team}`
+      `✅ 已記錄：RM ${parsed.amount.toLocaleString("en-US")} | ` +
+      `${parsed.member} | ${parsed.source} | ${team}`
     );
     return;
   }
 
-  await message.reply("❌ 寫入失敗，請檢查 Apps Script");
+  console.error("RECEIPT FAILED:", result);
+  await message.reply("❌ 寫入失敗，請管理員檢查 Render Logs");
 }
 
-client.on("clientReady", () => {
-  console.log("Bot 已上线：" + client.user.tag);
+// ======================================================
+// Discord Events
+// ======================================================
+
+client.once("clientReady", () => {
+  console.log(`Bot 已上线：${client.user.tag}`);
 });
 
 client.on("messageCreate", async (message) => {
@@ -156,20 +286,24 @@ client.on("messageCreate", async (message) => {
     if (message.author.bot) return;
 
     const content = message.content.trim();
-    const lowerContent = content.toLowerCase();
 
-    if (["void", "撤銷", "撤销", "cancel"].includes(lowerContent)) {
+    if (isVoidCommand(content)) {
       await handleVoid(message);
       return;
     }
 
-    if (!content.startsWith("+")) return;
+    if (!content.startsWith("+")) {
+      return;
+    }
 
     await handleReceipt(message);
 
   } catch (error) {
-    console.error("BOT ERROR:", error);
-    await message.reply("❌ 系統錯誤，請檢查 Render Logs");
+    console.error("MESSAGE CREATE ERROR:", error);
+
+    await message.reply(
+      "❌ 系統錯誤，請管理員檢查 Render Logs"
+    ).catch(() => {});
   }
 });
 
@@ -177,16 +311,24 @@ client.on("messageUpdate", async (oldMessage, newMessage) => {
   try {
     if (newMessage.author?.bot) return;
 
-    const content = newMessage.content?.trim() || "";
-    if (!content.startsWith("+")) return;
+    const newContent = newMessage.content?.trim() || "";
+
+    if (!newContent.startsWith("+")) {
+      return;
+    }
 
     await newMessage.reply(
-      "⚠️ 已入賬報數不接受 Edit 修改。若報錯，請 Reply 原報數輸入 void 撤銷，再重新報正確金額。"
+      "⚠️ 已入賬報數不接受 Edit 修改。\n" +
+      "若資料錯誤，請 Reply 原報數輸入 void 撤銷，再重新報正確資料。"
     );
 
   } catch (error) {
-    console.error("messageUpdate error:", error);
+    console.error("MESSAGE UPDATE ERROR:", error);
   }
 });
+
+// ======================================================
+// Login
+// ======================================================
 
 client.login(TOKEN);
