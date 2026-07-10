@@ -195,6 +195,10 @@ async function handleVoid(message) {
     return;
   }
 
+  // 刪除 Bot 的已記錄
+const botReply = await message.channel.messages.fetch(message.reference.messageId);
+await botReply.delete().catch(() => {});
+  
   // 已經撤銷過
   if (result.ok && result.alreadyVoided) {
     const replyMessage = await message.reply(
