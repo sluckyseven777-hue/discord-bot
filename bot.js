@@ -261,32 +261,76 @@ function parseReceipt(content) {
 
 async function handleReceipt(message) {
   const content = message.content.trim();
-  const parsed = parseReceipt(content);
 
-  if (!parsed.ok) {
-    await message.reply(parsed.error);
-    return;
-  }
+  // 只接受 +金額
+  const match = content.match(/^\+(\d+(?:\.\d{1,2})?)$/);
 
-  const { company, team } = getCompanyAndTeam(message);
-
-  if (!company || !team) {
+  if (!match) {
     await message.reply(
-      "❌ Discord 分類格式錯誤，請使用：公司 | 組名"
+      "❌ 格式錯誤，請 Reply 原始單據後輸入：+300"
     );
     return;
   }
 
-  const reporter = getReporter(message);
+  // 一定要 Reply 原單據
+  if (!message.reference?.messageId) {
+    await message.reply(
+      "❌ 請 Reply 要確認的原始單據，再輸入 +金額"
+    );
+    return;
+  }
+
+  const amount = Number(match[1]);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    await message.reply(
+      "❌ 金額錯誤，請確認金額大於 0"
+    );
+    return;
+  }
+
+  // 取得原始單據
+  let originalMessage;
+
+  try {
+    originalMessage = await message.channel.messages.fetch(
+      message.reference.messageId
+    );
+  } catch (error) {
+    console.error("FETCH ORIGINAL ERROR:", error);
+
+    await message.reply(
+      "❌ 找不到原始單據，請重新 Reply 該訊息"
+    );
+    return;
+  }
+
+  // 不允許 Reply Bot 訊息當新入款
+  if (originalMessage.author.bot) {
+    await message.reply(
+      "❌ 請 Reply 原始單據，不要 Reply Bot 訊息"
+    );
+    return;
+  }
+
+  // 原單據作者 = 單主
+  const owner =
+    originalMessage.member?.displayName ||
+    originalMessage.author.globalName ||
+    originalMessage.author.username;
+
+  // +300 的人 = 確認人
+  const confirmer =
+    message.member?.displayName ||
+    message.author.globalName ||
+    message.author.username;
 
   const payload = {
-    company,
-    team,
-    member: parsed.member,
-    amount: parsed.amount,
-    source: parsed.source,
-    msgId: message.id,
-    reporter
+    owner,
+    amount,
+    originalMsgId: originalMessage.id,
+    confirmMsgId: message.id,
+    confirmer
   };
 
   console.log("RECEIPT PAYLOAD:", payload);
@@ -295,21 +339,22 @@ async function handleReceipt(message) {
 
   console.log("RECEIPT RESULT:", result);
 
-  // 同一个 Discord MsgID 已经处理过，安静忽略
   if (result.ok && result.duplicate) {
     return;
   }
 
   if (result.ok) {
     await message.reply(
-      `✅ 已記錄：RM ${parsed.amount.toLocaleString("en-US")} | ` +
-      `${parsed.member} | ${parsed.source} | ${team}`
+      `✅ 已確認入款：RM ${amount.toLocaleString("en-US")} ｜ ${owner}`
     );
     return;
   }
 
   console.error("RECEIPT FAILED:", result);
-  await message.reply("❌ 寫入失敗，請管理員檢查 Render Logs");
+
+  await message.reply(
+    "❌ 入款失敗，請管理員檢查 Render Logs"
+  );
 }
 
 // ======================================================
