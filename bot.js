@@ -51,9 +51,10 @@ function getReporter(message) {
 }
 
 function isVoidCommand(content) {
-  return ["void", "撤銷", "撤销", "cancel"].includes(
-    content.trim().toLowerCase()
-  );
+  return [
+    "撤销入款",
+    "撤銷入款"
+  ].includes(content.trim());
 }
 
 function formatMoney(value) {
@@ -411,23 +412,12 @@ async function handleVoid(message) {
 
   if (!targetMsgId) {
 
-    const warningMessage =
-      await message.reply(
-        "❌ 請 Reply 原報數或 Bot 的已確認訊息，再輸入 void"
-      );
+  await message.reply(
+    "❌ 請 Reply 原報數或 Bot 的已確認訊息，再輸入「撤销入款」"
+  );
 
-    deleteMessageLater(
-      message,
-      2000
-    );
-
-    deleteMessageLater(
-      warningMessage,
-      2000
-    );
-
-    return;
-  }
+  return;
+}
 
 
   const operator =
@@ -453,27 +443,21 @@ async function handleVoid(message) {
   // ==================================================
 
   if (
-    result.ok &&
-    result.voided
-  ) {
+  result.ok &&
+  result.voided
+) {
 
-    await message.reply(
-      "✅ 已撤銷此筆入賬，請重新報正確金額"
-    );
+  await message.reply(
+    "撤销成功"
+  );
 
+  // 撤销入款訊息保留，不自動刪除
+  // 撤销成功訊息也保留
 
-    // 刪除使用者輸入的 void
-    await deleteMessageSafely(
-      message
-    );
+  await refreshTodaySummary();
 
-
-    // 立即重新計算總表
-    await refreshTodaySummary();
-
-    return;
-  }
-
+  return;
+}
 
   // ==================================================
   // 已經 Void 過
@@ -873,12 +857,10 @@ client.on(
         return;
       }
 
-
-      await newMessage.reply(
-        "⚠️ 已入賬報數不接受 Edit 修改。\n" +
-        "若資料錯誤，請 Reply 原報數輸入 void 撤銷，再重新報正確資料。"
-      );
-
+     await newMessage.reply(
+  "⚠️ 已入賬報數不接受 Edit 修改。\n" +
+  "若資料錯誤，請 Reply 原報數輸入「撤销入款」。"
+);
 
     } catch (error) {
 
