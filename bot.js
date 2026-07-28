@@ -6,7 +6,6 @@ const { Client, GatewayIntentBits } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
-const SUMMARY_CHANNEL_ID = process.env.SUMMARY_CHANNEL_ID;
 
 if (!TOKEN) {
   throw new Error("缺少 Render 環境變量：TOKEN");
@@ -14,10 +13,6 @@ if (!TOKEN) {
 
 if (!APPS_SCRIPT_URL) {
   throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL");
-}
-
-if (!SUMMARY_CHANNEL_ID) {
-  console.warn("⚠️ 尚未設定 SUMMARY_CHANNEL_ID，即時總表不會運作");
 }
 
 
@@ -34,10 +29,6 @@ const client = new Client({
 });
 
 
-// 每天記錄一則總表 Message ID
-const summaryMessageCache = new Map();
-
-
 // ======================================================
 // 基礎工具
 // ======================================================
@@ -50,12 +41,14 @@ function getReporter(message) {
   );
 }
 
+
 function isVoidCommand(content) {
   return [
     "撤销入款",
     "撤銷入款"
   ].includes(content.trim());
 }
+
 
 function formatMoney(value) {
   const num = Number(value || 0);
@@ -73,6 +66,7 @@ function formatMoney(value) {
 
 async function postToAppsScript(payload) {
   try {
+
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       redirect: "follow",
@@ -85,14 +79,18 @@ async function postToAppsScript(payload) {
     const responseText = await response.text();
 
     console.log("APPS HTTP STATUS:", response.status);
+
     console.log(
       "APPS RAW RESPONSE:",
       responseText.slice(0, 500)
     );
 
     try {
+
       return JSON.parse(responseText);
+
     } catch {
+
       return {
         ok: false,
         error: "Apps Script 回傳的內容不是 JSON",
@@ -101,7 +99,11 @@ async function postToAppsScript(payload) {
     }
 
   } catch (error) {
-    console.error("APPS REQUEST ERROR:", error);
+
+    console.error(
+      "APPS REQUEST ERROR:",
+      error
+    );
 
     return {
       ok: false,
@@ -112,15 +114,20 @@ async function postToAppsScript(payload) {
 
 
 // ======================================================
-// 今日即時總表
+// 今日即時總表內容
 // ======================================================
 
 function buildTodaySummaryContent(summary) {
+
   const entries = summary.entries || [];
 
   const entryLines = entries.map(item => {
-    const amount = Number(item.amount || 0);
-    const netAmount = Number(item.netAmount || 0);
+
+    const amount =
+      Number(item.amount || 0);
+
+    const netAmount =
+      Number(item.netAmount || 0);
 
     return (
       `${item.time} ` +
@@ -129,8 +136,10 @@ function buildTodaySummaryContent(summary) {
     );
   });
 
+
   const feePercent =
     Number(summary.feeRate || 0) * 100;
+
 
   return (
 `💹今日入款（${summary.count || 0}筆）
@@ -151,175 +160,73 @@ ${entryLines.length
 }
 
 
-async function refreshTodaySummary() {
-  if (!SUMMARY_CHANNEL_ID) {
-    console.error("Missing SUMMARY_CHANNEL_ID");
-    return;
-  }
+// ======================================================
+// 發送最新 Summary
+//
+// 注意：
+// 每成功入款一筆，都發一張新的 Summary。
+// 不 Edit 舊 Summary。
+// ======================================================
+
+async function refreshTodaySummary(channel) {
 
   try {
 
-    const result = await postToAppsScript({
-      action: "GET_TODAY_SUMMARY"
-    });
+    const result =
+      await postToAppsScript({
+        action: "GET_TODAY_SUMMARY"
+      });
 
-    console.log("SUMMARY RESULT:", result);
+
+    console.log(
+      "SUMMARY RESULT:",
+      result
+    );
+
 
     if (!result.ok) {
+
       console.error(
         "GET SUMMARY FAILED:",
         result
       );
+
       return;
     }
 
-
-    // 找 Discord Channel
-    const channel = await client.channels.fetch(
-      SUMMARY_CHANNEL_ID
-    );
 
     if (
       !channel ||
       !channel.isTextBased()
     ) {
+
       console.error(
-        "Summary channel not found or not text based"
+        "Current channel is not text based"
       );
+
       return;
     }
 
 
     const content =
-      buildTodaySummaryContent(result);
-
-
-    // Malaysia 日期
-    const today =
-      new Date().toLocaleDateString(
-        "en-CA",
-        {
-          timeZone: "Asia/Kuala_Lumpur"
-        }
+      buildTodaySummaryContent(
+        result
       );
 
 
-    let summaryMessageId =
-      summaryMessageCache.get(today);
-
-
     // ==================================================
-    // Render Restart 後 Cache 會消失
-    // 所以尋找今天已存在的總表
+    // 每一次都發新的 Summary
     // ==================================================
 
-    if (!summaryMessageId) {
-
-      const recentMessages =
-        await channel.messages.fetch({
-          limit: 100
-        });
-
-
-      const existing =
-        recentMessages.find(msg => {
-
-          if (
-            msg.author.id !== client.user.id
-          ) {
-            return false;
-          }
-
-          if (
-            !msg.content.startsWith(
-              "💹今日入款"
-            )
-          ) {
-            return false;
-          }
-
-
-          const msgDate =
-            msg.createdAt.toLocaleDateString(
-              "en-CA",
-              {
-                timeZone:
-                  "Asia/Kuala_Lumpur"
-              }
-            );
-
-
-          return msgDate === today;
-        });
-
-
-      if (existing) {
-        summaryMessageId =
-          existing.id;
-
-        summaryMessageCache.set(
-          today,
-          existing.id
-        );
-      }
-    }
-
-
-    // ==================================================
-    // 已經有今日總表 → Edit
-    // ==================================================
-
-    if (summaryMessageId) {
-
-      try {
-
-        const summaryMessage =
-          await channel.messages.fetch(
-            summaryMessageId
-          );
-
-        await summaryMessage.edit(
-          content
-        );
-
-        console.log(
-          "✅ 今日總表已更新:",
-          summaryMessageId
-        );
-
-        return;
-
-      } catch (error) {
-
-        console.error(
-          "UPDATE SUMMARY FAILED:",
-          error?.message || error
-        );
-
-        summaryMessageCache.delete(
-          today
-        );
-      }
-    }
-
-
-    // ==================================================
-    // 今天沒有總表 → 建立
-    // ==================================================
-
-    const newMessage =
-      await channel.send(content);
-
-
-    summaryMessageCache.set(
-      today,
-      newMessage.id
-    );
+    const summaryMessage =
+      await channel.send(
+        content
+      );
 
 
     console.log(
-      "✅ 今日總表已建立:",
-      newMessage.id
+      "✅ 新 Summary 已發送:",
+      summaryMessage.id
     );
 
 
@@ -334,13 +241,14 @@ async function refreshTodaySummary() {
 
 
 // ======================================================
-// Void
+// Void / 撤销入款
 // ======================================================
 
 async function resolveVoidTargetMessageId(message) {
 
   const referencedMessageId =
     message.reference?.messageId;
+
 
   if (!referencedMessageId) {
     return null;
@@ -353,13 +261,13 @@ async function resolveVoidTargetMessageId(message) {
     );
 
 
-  // Reply 原始 +金額確認訊息
+  // Reply 原始 +金額訊息
   if (!repliedMessage.author.bot) {
     return repliedMessage.id;
   }
 
 
-  // Reply Bot 回覆
+  // Reply Bot 的已確認訊息
   if (
     repliedMessage.reference?.messageId
   ) {
@@ -396,11 +304,17 @@ function deleteMessageLater(
 
   setTimeout(() => {
 
-    deleteMessageSafely(message);
+    deleteMessageSafely(
+      message
+    );
 
   }, delay);
 }
 
+
+// ======================================================
+// 處理撤销入款
+// ======================================================
 
 async function handleVoid(message) {
 
@@ -412,12 +326,12 @@ async function handleVoid(message) {
 
   if (!targetMsgId) {
 
-  await message.reply(
-    "❌ 請 Reply 原報數或 Bot 的已確認訊息，再輸入「撤销入款」"
-  );
+    await message.reply(
+      "❌ 請 Reply 原報數或 Bot 的已確認訊息，再輸入「撤销入款」"
+    );
 
-  return;
-}
+    return;
+  }
 
 
   const operator =
@@ -439,28 +353,37 @@ async function handleVoid(message) {
 
 
   // ==================================================
-  // Void 成功
+  // 撤销成功
   // ==================================================
 
   if (
-  result.ok &&
-  result.voided
-) {
+    result.ok &&
+    result.voided
+  ) {
 
-  await message.reply(
-    "撤销成功"
-  );
+    await message.reply(
+      "撤销成功"
+    );
 
-  // 撤销入款訊息保留，不自動刪除
-  // 撤销成功訊息也保留
 
-  await refreshTodaySummary();
+    // 撤销入款訊息保留
+    // 撤销成功訊息保留
 
-  return;
-}
+
+    // 撤销後重新取得今日資料
+    // 並發一張新的最新 Summary
+
+    await refreshTodaySummary(
+      message.channel
+    );
+
+
+    return;
+  }
+
 
   // ==================================================
-  // 已經 Void 過
+  // 已經撤销過
   // ==================================================
 
   if (
@@ -479,14 +402,20 @@ async function handleVoid(message) {
       2000
     );
 
+
     deleteMessageLater(
       warningMessage,
       2000
     );
 
+
     return;
   }
 
+
+  // ==================================================
+  // 找不到入賬
+  // ==================================================
 
   if (
     result.error ===
@@ -504,14 +433,20 @@ async function handleVoid(message) {
       3000
     );
 
+
     deleteMessageLater(
       warningMessage,
       3000
     );
 
+
     return;
   }
 
+
+  // ==================================================
+  // 其他錯誤
+  // ==================================================
 
   console.error(
     "VOID FAILED:",
@@ -530,6 +465,7 @@ async function handleVoid(message) {
     3000
   );
 
+
   deleteMessageLater(
     errorMessage,
     3000
@@ -547,10 +483,16 @@ async function handleReceipt(message) {
     message.content.trim();
 
 
-  // 只接受：
+  // ==================================================
+  // 目前只接受：
+  //
   // +300
   // +1853
   // +1200.50
+  //
+  // 下一步才加入：
+  // +300 異常200
+  // ==================================================
 
   const match =
     content.match(
@@ -568,7 +510,9 @@ async function handleReceipt(message) {
   }
 
 
+  // ==================================================
   // 一定要 Reply 原單據
+  // ==================================================
 
   if (
     !message.reference?.messageId
@@ -629,7 +573,9 @@ async function handleReceipt(message) {
   }
 
 
+  // ==================================================
   // 不允許 Bot 訊息作為原單據
+  // ==================================================
 
   if (
     originalMessage.author.bot
@@ -660,6 +606,10 @@ async function handleReceipt(message) {
   const confirmer =
     getReporter(message);
 
+
+  // ==================================================
+  // 傳送 Apps Script
+  // ==================================================
 
   const payload = {
 
@@ -696,7 +646,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 防重複
+  // 防止完全相同確認訊息重複處理
   // ==================================================
 
   if (
@@ -718,6 +668,8 @@ async function handleReceipt(message) {
 
   if (result.ok) {
 
+    // ① 回覆確認成功
+
     await message.reply(
       `✅ 已確認入款：RM ${amount.toLocaleString(
         "en-US"
@@ -725,8 +677,13 @@ async function handleReceipt(message) {
     );
 
 
-    // ⭐ 入款成功後即時更新總表
-    await refreshTodaySummary();
+    // ② 每成功一筆
+    // 都在目前這個 Channel
+    // 發一張全新的最新 Summary
+
+    await refreshTodaySummary(
+      message.channel
+    );
 
 
     return;
@@ -782,7 +739,9 @@ client.on(
         message.content.trim();
 
 
-      // Void
+      // ==================================================
+      // 撤销入款
+      // ==================================================
 
       if (
         isVoidCommand(content)
@@ -796,7 +755,9 @@ client.on(
       }
 
 
+      // ==================================================
       // 非 + 開頭不處理
+      // ==================================================
 
       if (
         !content.startsWith("+")
@@ -857,10 +818,12 @@ client.on(
         return;
       }
 
-     await newMessage.reply(
-  "⚠️ 已入賬報數不接受 Edit 修改。\n" +
-  "若資料錯誤，請 Reply 原報數輸入「撤销入款」。"
-);
+
+      await newMessage.reply(
+        "⚠️ 已入賬報數不接受 Edit 修改。\n" +
+        "若資料錯誤，請 Reply 原報數輸入「撤销入款」。"
+      );
+
 
     } catch (error) {
 
