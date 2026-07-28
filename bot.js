@@ -6,6 +6,7 @@ const { Client, GatewayIntentBits } = require("discord.js");
 
 const TOKEN = process.env.TOKEN;
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
+const ALLOWED_ROLE_ID = process.env.ALLOWED_ROLE_ID;
 
 if (!TOKEN) {
   throw new Error("缺少 Render 環境變量：TOKEN");
@@ -13,6 +14,10 @@ if (!TOKEN) {
 
 if (!APPS_SCRIPT_URL) {
   throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL");
+}
+
+if (!ALLOWED_ROLE_ID) {
+  throw new Error("缺少 Render 環境變量：ALLOWED_ROLE_ID");
 }
 
 
@@ -729,49 +734,63 @@ client.once(
 );
 
 
-client.on(
+  client.on(
   "messageCreate",
   async message => {
     try {
-      if (
-        message.author.bot
-      ) {
+      // Bot 自己的訊息不處理
+      if (message.author.bot) {
         return;
       }
 
       const content =
         message.content.trim();
 
+      // ======================================================
+      // 判斷是不是 Receipt 操作
+      // ======================================================
 
-      // ------------------------------------------
-      // 撤销入款
-      // ------------------------------------------
+      const isReceiptOperation =
+        content.startsWith("+") ||
+        isVoidCommand(content);
 
-      if (
-        isVoidCommand(content)
-      ) {
-        await handleVoid(
-          message
+      // 普通聊天 / 發圖片，不受限制
+      if (!isReceiptOperation) {
+        return;
+      }
+
+      // ======================================================
+      // 第三方 Role 權限檢查
+      // ======================================================
+
+      const hasAllowedRole =
+        message.member?.roles?.cache?.has(ALLOWED_ROLE_ID);
+
+      if (!hasAllowedRole) {
+        await message.reply(
+          "❌ 你沒有權限操作入款系統"
         );
 
         return;
       }
 
+      // ======================================================
+      // 撤销入款
+      // ======================================================
 
-      // ------------------------------------------
-      // 非 + 開頭不處理
-      // ------------------------------------------
-
-      if (
-        !content.startsWith("+")
-      ) {
+      if (isVoidCommand(content)) {
+        await handleVoid(message);
         return;
       }
 
+      // ======================================================
+      // + 入款
+      // ======================================================
 
-      await handleReceipt(
-        message
-      );
+      if (content.startsWith("+")) {
+        await handleReceipt(message);
+        return;
+      }
 
     } catch (error) {
       console.error(
