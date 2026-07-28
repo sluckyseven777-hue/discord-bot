@@ -210,7 +210,7 @@ async function refreshTodaySummary(channel) {
 // +300 balance 200 明天
 // ======================================================
 
-function function parseReceiptInput(content) {
+function parseReceiptInput(content) {
   const text = content.trim();
 
   // ==================================================
