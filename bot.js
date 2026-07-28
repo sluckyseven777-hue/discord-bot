@@ -66,7 +66,6 @@ function formatMoney(value) {
 
 async function postToAppsScript(payload) {
   try {
-
     const response = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
       redirect: "follow",
@@ -79,18 +78,14 @@ async function postToAppsScript(payload) {
     const responseText = await response.text();
 
     console.log("APPS HTTP STATUS:", response.status);
-
     console.log(
       "APPS RAW RESPONSE:",
       responseText.slice(0, 500)
     );
 
     try {
-
       return JSON.parse(responseText);
-
     } catch {
-
       return {
         ok: false,
         error: "Apps Script 回傳的內容不是 JSON",
@@ -99,7 +94,6 @@ async function postToAppsScript(payload) {
     }
 
   } catch (error) {
-
     console.error(
       "APPS REQUEST ERROR:",
       error
@@ -114,20 +108,15 @@ async function postToAppsScript(payload) {
 
 
 // ======================================================
-// 今日即時總表內容
+// 今日 Summary 內容
 // ======================================================
 
 function buildTodaySummaryContent(summary) {
-
   const entries = summary.entries || [];
 
   const entryLines = entries.map(item => {
-
-    const amount =
-      Number(item.amount || 0);
-
-    const netAmount =
-      Number(item.netAmount || 0);
+    const amount = Number(item.amount || 0);
+    const netAmount = Number(item.netAmount || 0);
 
     return (
       `${item.time} ` +
@@ -136,10 +125,8 @@ function buildTodaySummaryContent(summary) {
     );
   });
 
-
   const feePercent =
     Number(summary.feeRate || 0) * 100;
-
 
   return (
 `💹今日入款（${summary.count || 0}筆）
@@ -161,77 +148,50 @@ ${entryLines.length
 
 
 // ======================================================
-// 發送最新 Summary
-//
-// 注意：
-// 每成功入款一筆，都發一張新的 Summary。
-// 不 Edit 舊 Summary。
+// 每次都發一張新的 Summary
 // ======================================================
 
 async function refreshTodaySummary(channel) {
-
   try {
-
-    const result =
-      await postToAppsScript({
-        action: "GET_TODAY_SUMMARY"
-      });
-
+    const result = await postToAppsScript({
+      action: "GET_TODAY_SUMMARY"
+    });
 
     console.log(
       "SUMMARY RESULT:",
       result
     );
 
-
     if (!result.ok) {
-
       console.error(
         "GET SUMMARY FAILED:",
         result
       );
-
       return;
     }
-
 
     if (
       !channel ||
       !channel.isTextBased()
     ) {
-
       console.error(
         "Current channel is not text based"
       );
-
       return;
     }
 
-
     const content =
-      buildTodaySummaryContent(
-        result
-      );
-
-
-    // ==================================================
-    // 每一次都發新的 Summary
-    // ==================================================
+      buildTodaySummaryContent(result);
 
     const summaryMessage =
-      await channel.send(
-        content
-      );
-
+      await channel.send(content);
 
     console.log(
       "✅ 新 Summary 已發送:",
       summaryMessage.id
     );
 
-
   } catch (error) {
-
     console.error(
       "REFRESH SUMMARY ERROR:",
       error
@@ -241,31 +201,115 @@ async function refreshTodaySummary(channel) {
 
 
 // ======================================================
-// Void / 撤销入款
+// 入款文字解析
+//
+// 支援：
+// +300
+// +300 異常200
+// +300,異常200
+// +300 balance 200 明天
+// ======================================================
+
+function parseReceiptInput(content) {
+  const text = content.trim();
+
+  // ------------------------------------------
+  // 1. 純正常入款
+  // +300
+  // +300.50
+  // ------------------------------------------
+
+  let match = text.match(
+    /^\+(\d+(?:\.\d{1,2})?)$/
+  );
+
+  if (match) {
+    return {
+      ok: true,
+      amount: Number(match[1]),
+      abnormalAmount: 0,
+      pendingAmount: 0,
+      note: "",
+      type: "normal"
+    };
+  }
+
+
+  // ------------------------------------------
+  // 2. 異常
+  //
+  // +300 異常200
+  // +300 異常 200
+  // +300,異常200
+  // ------------------------------------------
+
+  match = text.match(
+    /^\+(\d+(?:\.\d{1,2})?)\s*[,，]?\s*異常\s*(\d+(?:\.\d{1,2})?)$/
+  );
+
+  if (match) {
+    return {
+      ok: true,
+      amount: Number(match[1]),
+      abnormalAmount: Number(match[2]),
+      pendingAmount: 0,
+      note: "異常",
+      type: "abnormal"
+    };
+  }
+
+
+  // ------------------------------------------
+  // 3. Balance / 待補
+  //
+  // +300 balance 200 明天
+  // +300 balance 200 明早
+  // +300 balance 200 客戶待補
+  // ------------------------------------------
+
+  match = text.match(
+    /^\+(\d+(?:\.\d{1,2})?)\s+balance\s+(\d+(?:\.\d{1,2})?)(?:\s+(.+))?$/i
+  );
+
+  if (match) {
+    return {
+      ok: true,
+      amount: Number(match[1]),
+      abnormalAmount: 0,
+      pendingAmount: Number(match[2]),
+      note: (match[3] || "").trim(),
+      type: "balance"
+    };
+  }
+
+
+  return {
+    ok: false
+  };
+}
+
+
+// ======================================================
+// 撤销入款
 // ======================================================
 
 async function resolveVoidTargetMessageId(message) {
-
   const referencedMessageId =
     message.reference?.messageId;
-
 
   if (!referencedMessageId) {
     return null;
   }
-
 
   const repliedMessage =
     await message.channel.messages.fetch(
       referencedMessageId
     );
 
-
-  // Reply 原始 +金額訊息
+  // Reply 指定的 +300 / +300異常200
   if (!repliedMessage.author.bot) {
     return repliedMessage.id;
   }
-
 
   // Reply Bot 的已確認訊息
   if (
@@ -274,21 +318,16 @@ async function resolveVoidTargetMessageId(message) {
     return repliedMessage.reference.messageId;
   }
 
-
   return null;
 }
 
 
 async function deleteMessageSafely(message) {
-
   if (!message) return;
 
   try {
-
     await message.delete();
-
   } catch (error) {
-
     console.error(
       "DELETE MESSAGE FAILED:",
       error?.message || error
@@ -301,13 +340,8 @@ function deleteMessageLater(
   message,
   delay = 2000
 ) {
-
   setTimeout(() => {
-
-    deleteMessageSafely(
-      message
-    );
-
+    deleteMessageSafely(message);
   }, delay);
 }
 
@@ -317,26 +351,21 @@ function deleteMessageLater(
 // ======================================================
 
 async function handleVoid(message) {
-
   const targetMsgId =
     await resolveVoidTargetMessageId(
       message
     );
 
-
   if (!targetMsgId) {
-
     await message.reply(
-      "❌ 請 Reply 原報數或 Bot 的已確認訊息，再輸入「撤销入款」"
+      "❌ 請 Reply 要撤銷的入款，再輸入「撤销入款」"
     );
 
     return;
   }
 
-
   const operator =
     getReporter(message);
-
 
   const result =
     await postToAppsScript({
@@ -345,198 +374,156 @@ async function handleVoid(message) {
       operator
     });
 
-
   console.log(
     "VOID RESULT:",
     result
   );
 
 
-  // ==================================================
+  // ------------------------------------------
   // 撤销成功
-  // ==================================================
+  // ------------------------------------------
 
   if (
     result.ok &&
     result.voided
   ) {
-
     await message.reply(
       "撤销成功"
     );
-
-
-    // 撤销入款訊息保留
-    // 撤销成功訊息保留
-
-
-    // 撤销後重新取得今日資料
-    // 並發一張新的最新 Summary
 
     await refreshTodaySummary(
       message.channel
     );
 
-
     return;
   }
 
 
-  // ==================================================
+  // ------------------------------------------
   // 已經撤销過
-  // ==================================================
+  // ------------------------------------------
 
   if (
     result.ok &&
     result.alreadyVoided
   ) {
-
-    const warningMessage =
-      await message.reply(
-        "⚠️ 此筆已經撤銷過了"
-      );
-
-
-    deleteMessageLater(
-      message,
-      2000
+    await message.reply(
+      "⚠️ 此筆已經撤銷過了"
     );
-
-
-    deleteMessageLater(
-      warningMessage,
-      2000
-    );
-
 
     return;
   }
 
 
-  // ==================================================
-  // 找不到入賬
-  // ==================================================
+  // ------------------------------------------
+  // 找不到
+  // ------------------------------------------
 
   if (
     result.error ===
     "MsgID not found"
   ) {
-
-    const warningMessage =
-      await message.reply(
-        "❌ 找不到這筆入賬"
-      );
-
-
-    deleteMessageLater(
-      message,
-      3000
+    await message.reply(
+      "❌ 找不到這筆入款"
     );
-
-
-    deleteMessageLater(
-      warningMessage,
-      3000
-    );
-
 
     return;
   }
 
-
-  // ==================================================
-  // 其他錯誤
-  // ==================================================
 
   console.error(
     "VOID FAILED:",
     result
   );
 
-
-  const errorMessage =
-    await message.reply(
-      "❌ 撤銷失敗，請管理員檢查 Render Logs"
-    );
-
-
-  deleteMessageLater(
-    message,
-    3000
-  );
-
-
-  deleteMessageLater(
-    errorMessage,
-    3000
+  await message.reply(
+    "❌ 撤銷失敗，請管理員檢查 Render Logs"
   );
 }
 
 
 // ======================================================
-// 入款
+// 處理入款
 // ======================================================
 
 async function handleReceipt(message) {
-
   const content =
     message.content.trim();
 
 
   // ==================================================
-  // 目前只接受：
-  //
-  // +300
-  // +1853
-  // +1200.50
-  //
-  // 下一步才加入：
-  // +300 異常200
+  // 解析格式
   // ==================================================
 
-  const match =
-    content.match(
-      /^\+(\d+(?:\.\d{1,2})?)$/
-    );
+  const parsed =
+    parseReceiptInput(content);
 
 
-  if (!match) {
-
+  if (!parsed.ok) {
     await message.reply(
-      "❌ 格式錯誤，請 Reply 原始單據後輸入：+300"
+`❌ 格式錯誤
+
+正常：
++300
+
+異常：
++300 異常200
+
+待補：
++300 balance 200 明天`
     );
 
     return;
   }
 
 
+  const {
+    amount,
+    abnormalAmount,
+    pendingAmount,
+    note,
+    type
+  } = parsed;
+
+
   // ==================================================
-  // 一定要 Reply 原單據
+  // 金額檢查
   // ==================================================
-
-  if (
-    !message.reference?.messageId
-  ) {
-
-    await message.reply(
-      "❌ 請 Reply 要確認的原始單據，再輸入 +金額"
-    );
-
-    return;
-  }
-
-
-  const amount =
-    Number(match[1]);
-
 
   if (
     !Number.isFinite(amount) ||
     amount <= 0
   ) {
-
     await message.reply(
-      "❌ 金額錯誤，請確認金額大於 0"
+      "❌ 金額錯誤，請確認正常入款金額大於 0"
+    );
+
+    return;
+  }
+
+
+  if (
+    abnormalAmount < 0 ||
+    pendingAmount < 0
+  ) {
+    await message.reply(
+      "❌ 異常或待補金額不能小於 0"
+    );
+
+    return;
+  }
+
+
+  // ==================================================
+  // 必須 Reply 原始單據
+  // ==================================================
+
+  if (
+    !message.reference?.messageId
+  ) {
+    await message.reply(
+      "❌ 請 Reply 要確認的原始單據，再輸入入款"
     );
 
     return;
@@ -549,21 +536,17 @@ async function handleReceipt(message) {
 
   let originalMessage;
 
-
   try {
-
     originalMessage =
       await message.channel.messages.fetch(
         message.reference.messageId
       );
 
   } catch (error) {
-
     console.error(
       "FETCH ORIGINAL ERROR:",
       error
     );
-
 
     await message.reply(
       "❌ 找不到原始單據，請重新 Reply 該訊息"
@@ -573,14 +556,9 @@ async function handleReceipt(message) {
   }
 
 
-  // ==================================================
-  // 不允許 Bot 訊息作為原單據
-  // ==================================================
-
   if (
     originalMessage.author.bot
   ) {
-
     await message.reply(
       "❌ 請 Reply 原始單據，不要 Reply Bot 訊息"
     );
@@ -590,7 +568,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 單主
+  // 發單人
   // ==================================================
 
   const owner =
@@ -600,7 +578,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 確認人
+  // 操作人
   // ==================================================
 
   const confirmer =
@@ -608,14 +586,16 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 傳送 Apps Script
+  // Payload
   // ==================================================
 
   const payload = {
-
     owner,
-
     amount,
+
+    abnormalAmount,
+    pendingAmount,
+    note,
 
     originalMsgId:
       originalMessage.id,
@@ -646,14 +626,13 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 防止完全相同確認訊息重複處理
+  // 真正重複訊息
   // ==================================================
 
   if (
     result.ok &&
     result.duplicate
   ) {
-
     console.log(
       "Duplicate receipt ignored"
     );
@@ -663,24 +642,45 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 入款成功
+  // 成功
   // ==================================================
 
   if (result.ok) {
 
-    // ① 回覆確認成功
+    let replyText =
+      `✅ 已確認入款：RM ${formatMoney(amount)} ｜ ${owner}`;
+
+
+    // 異常只顯示提醒
+    if (
+      type === "abnormal"
+    ) {
+      replyText +=
+        `\n⚠️ 異常：RM ${formatMoney(abnormalAmount)}（僅記錄）`;
+    }
+
+
+    // Balance
+    if (
+      type === "balance"
+    ) {
+      replyText +=
+        `\n🕒 待補：RM ${formatMoney(pendingAmount)}`;
+
+      if (note) {
+        replyText +=
+          ` ｜ ${note}`;
+      }
+    }
+
 
     await message.reply(
-      `✅ 已確認入款：RM ${amount.toLocaleString(
-        "en-US"
-      )} ｜ ${owner}`
+      replyText
     );
 
 
-    // ② 每成功一筆
-    // 都在目前這個 Channel
-    // 發一張全新的最新 Summary
-
+    // 每成功一筆發一張新的 Summary
+    // Summary 只會計算 amount
     await refreshTodaySummary(
       message.channel
     );
@@ -691,14 +691,13 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 入款失敗
+  // 失敗
   // ==================================================
 
   console.error(
     "RECEIPT FAILED:",
     result
   );
-
 
   await message.reply(
     "❌ 入款失敗，請管理員檢查 Render Logs"
@@ -713,11 +712,9 @@ async function handleReceipt(message) {
 client.once(
   "clientReady",
   () => {
-
     console.log(
       `Bot 已上線：${client.user.tag}`
     );
-
   }
 );
 
@@ -725,28 +722,24 @@ client.once(
 client.on(
   "messageCreate",
   async message => {
-
     try {
-
       if (
         message.author.bot
       ) {
         return;
       }
 
-
       const content =
         message.content.trim();
 
 
-      // ==================================================
+      // ------------------------------------------
       // 撤销入款
-      // ==================================================
+      // ------------------------------------------
 
       if (
         isVoidCommand(content)
       ) {
-
         await handleVoid(
           message
         );
@@ -755,9 +748,9 @@ client.on(
       }
 
 
-      // ==================================================
+      // ------------------------------------------
       // 非 + 開頭不處理
-      // ==================================================
+      // ------------------------------------------
 
       if (
         !content.startsWith("+")
@@ -770,14 +763,11 @@ client.on(
         message
       );
 
-
     } catch (error) {
-
       console.error(
         "MESSAGE CREATE ERROR:",
         error
       );
-
 
       await message.reply(
         "❌ 系統錯誤，請管理員檢查 Render Logs"
@@ -788,7 +778,7 @@ client.on(
 
 
 // ======================================================
-// 禁止 Edit 修改已入賬金額
+// 禁止 Edit
 // ======================================================
 
 client.on(
@@ -797,20 +787,16 @@ client.on(
     oldMessage,
     newMessage
   ) => {
-
     try {
-
       if (
         newMessage.author?.bot
       ) {
         return;
       }
 
-
       const newContent =
         newMessage.content?.trim() ||
         "";
-
 
       if (
         !newContent.startsWith("+")
@@ -818,15 +804,12 @@ client.on(
         return;
       }
 
-
       await newMessage.reply(
         "⚠️ 已入賬報數不接受 Edit 修改。\n" +
         "若資料錯誤，請 Reply 原報數輸入「撤销入款」。"
       );
 
-
     } catch (error) {
-
       console.error(
         "MESSAGE UPDATE ERROR:",
         error
