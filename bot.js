@@ -747,28 +747,54 @@ client.once(
         message.content.trim();
 
       // ======================================================
-      // 判斷是不是 Receipt 操作
+      // 判斷是不是入款系統操作
+      // 包括：
+      // +0
+      // +300
+      // +300 異常200
+      // +300 卡200
+      // +300 bal200 明天
+      // 撤销入款
       // ======================================================
 
       const isReceiptOperation =
         content.startsWith("+") ||
         isVoidCommand(content);
 
-      // 普通聊天 / 發圖片，不受限制
+      // 普通聊天、圖片、其他訊息不處理
       if (!isReceiptOperation) {
         return;
       }
 
       // ======================================================
-      // 第三方 Role 權限檢查
+      // 第三方身份組權限檢查
       // ======================================================
 
       const hasAllowedRole =
-        message.member?.roles?.cache?.has(ALLOWED_ROLE_ID);
+        message.member?.roles?.cache?.has(
+          ALLOWED_ROLE_ID
+        );
 
       if (!hasAllowedRole) {
         await message.reply(
           "❌ 你沒有權限操作入款系統"
+        );
+
+        return;
+      }
+
+      // ======================================================
+      // +0：查詢目前帳務日 Summary
+      //
+      // 不需要 Reply 收據
+      // 不寫入 Sheet
+      // 不增加筆數
+      // 只顯示目前帳務日最新 5 筆及總額
+      // ======================================================
+
+      if (content === "+0") {
+        await refreshTodaySummary(
+          message.channel
         );
 
         return;
@@ -784,7 +810,7 @@ client.once(
       }
 
       // ======================================================
-      // + 入款
+      // 正常入款 / 異常 / 卡 / Balance
       // ======================================================
 
       if (content.startsWith("+")) {
