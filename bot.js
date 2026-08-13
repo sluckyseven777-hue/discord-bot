@@ -5,20 +5,95 @@ const { Client, GatewayIntentBits } = require("discord.js");
 // ======================================================
 
 const TOKEN = process.env.TOKEN;
-const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 const ALLOWED_ROLE_ID = process.env.ALLOWED_ROLE_ID;
+
+// 六間公司 Apps Script
+const APPS_SCRIPT_URL_LV = process.env.APPS_SCRIPT_URL_LV;
+const APPS_SCRIPT_URL_LT = process.env.APPS_SCRIPT_URL_LT;
+const APPS_SCRIPT_URL_MMC = process.env.APPS_SCRIPT_URL_MMC;
+const APPS_SCRIPT_URL_XC = process.env.APPS_SCRIPT_URL_XC;
+const APPS_SCRIPT_URL_LU = process.env.APPS_SCRIPT_URL_LU;
+const APPS_SCRIPT_URL_LS = process.env.APPS_SCRIPT_URL_LS;
+
+
+// ======================================================
+// 必要環境變數檢查
+// ======================================================
 
 if (!TOKEN) {
   throw new Error("缺少 Render 環境變量：TOKEN");
 }
 
-if (!APPS_SCRIPT_URL) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL");
-}
-
 if (!ALLOWED_ROLE_ID) {
   throw new Error("缺少 Render 環境變量：ALLOWED_ROLE_ID");
 }
+
+if (!APPS_SCRIPT_URL_LV) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LV");
+}
+
+if (!APPS_SCRIPT_URL_LT) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LT");
+}
+
+if (!APPS_SCRIPT_URL_MMC) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_MMC");
+}
+
+if (!APPS_SCRIPT_URL_XC) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_XC");
+}
+
+if (!APPS_SCRIPT_URL_LU) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LU");
+}
+
+if (!APPS_SCRIPT_URL_LS) {
+  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LS");
+}
+
+
+// ======================================================
+// 六公司 Channel 對應
+// ======================================================
+
+const CHANNEL_CONFIG = {
+  // LV
+  "1530062853577506816": {
+    company: "LV",
+    appsScriptUrl: APPS_SCRIPT_URL_LV
+  },
+
+  // LT
+  "1536957257663909938": {
+    company: "LT",
+    appsScriptUrl: APPS_SCRIPT_URL_LT
+  },
+
+  // MMC
+  "1536957294506676355": {
+    company: "MMC",
+    appsScriptUrl: APPS_SCRIPT_URL_MMC
+  },
+
+  // 鑫宸
+  "1536957455995502634": {
+    company: "鑫宸",
+    appsScriptUrl: APPS_SCRIPT_URL_XC
+  },
+
+  // LU
+  "1536958163209822271": {
+    company: "LU",
+    appsScriptUrl: APPS_SCRIPT_URL_LU
+  },
+
+  // LS
+  "1536958281216688168": {
+    company: "LS",
+    appsScriptUrl: APPS_SCRIPT_URL_LS
+  }
+};
 
 
 // ======================================================
@@ -65,13 +140,26 @@ function formatMoney(value) {
 }
 
 
+function getChannelConfig(channelId) {
+  return CHANNEL_CONFIG[channelId] || null;
+}
+
+
 // ======================================================
 // Apps Script API
 // ======================================================
 
-async function postToAppsScript(payload) {
+async function postToAppsScript(appsScriptUrl, payload) {
   try {
-    const response = await fetch(APPS_SCRIPT_URL, {
+
+    if (!appsScriptUrl) {
+      return {
+        ok: false,
+        error: "Apps Script URL not configured"
+      };
+    }
+
+    const response = await fetch(appsScriptUrl, {
       method: "POST",
       redirect: "follow",
       headers: {
@@ -82,7 +170,11 @@ async function postToAppsScript(payload) {
 
     const responseText = await response.text();
 
-    console.log("APPS HTTP STATUS:", response.status);
+    console.log(
+      "APPS HTTP STATUS:",
+      response.status
+    );
+
     console.log(
       "APPS RAW RESPONSE:",
       responseText.slice(0, 500)
@@ -99,6 +191,7 @@ async function postToAppsScript(payload) {
     }
 
   } catch (error) {
+
     console.error(
       "APPS REQUEST ERROR:",
       error
@@ -117,21 +210,30 @@ async function postToAppsScript(payload) {
 // ======================================================
 
 function buildTodaySummaryContent(summary) {
-  const entries = summary.entries || [];
 
-  const entryLines = entries.map(item => {
-    const amount = Number(item.amount || 0);
-    const netAmount = Number(item.netAmount || 0);
+  const entries =
+    summary.entries || [];
 
-    return (
-      `${item.time} ` +
-      `${formatMoney(amount)} * (0.91)=` +
-      `${formatMoney(netAmount)} ${item.owner}`
-    );
-  });
+  const entryLines =
+    entries.map(item => {
+
+      const amount =
+        Number(item.amount || 0);
+
+      const netAmount =
+        Number(item.netAmount || 0);
+
+      return (
+        `${item.time} ` +
+        `${formatMoney(amount)} * (0.91)=` +
+        `${formatMoney(netAmount)} ${item.owner}`
+      );
+    });
+
 
   const feePercent =
     Number(summary.feeRate || 0) * 100;
+
 
   return (
 `💹今日入款（${summary.count || 0}筆）
@@ -153,50 +255,88 @@ ${entryLines.length
 
 
 // ======================================================
-// 每次都發一張新的 Summary
+// 每次發一張新的 Summary
 // ======================================================
 
 async function refreshTodaySummary(channel) {
   try {
-    const result = await postToAppsScript({
-      action: "GET_TODAY_SUMMARY"
-    });
+
+    const config =
+      getChannelConfig(channel.id);
+
+    if (!config) {
+      console.error(
+        "SUMMARY CHANNEL NOT CONFIGURED:",
+        channel.id
+      );
+      return;
+    }
+
+
+    console.log(
+      `GET SUMMARY COMPANY: ${config.company}`
+    );
+
+
+    const result =
+      await postToAppsScript(
+        config.appsScriptUrl,
+        {
+          action: "GET_TODAY_SUMMARY"
+        }
+      );
+
 
     console.log(
       "SUMMARY RESULT:",
       result
     );
 
+
     if (!result.ok) {
+
       console.error(
         "GET SUMMARY FAILED:",
         result
       );
+
       return;
     }
+
 
     if (
       !channel ||
       !channel.isTextBased()
     ) {
+
       console.error(
         "Current channel is not text based"
       );
+
       return;
     }
 
+
     const content =
-      buildTodaySummaryContent(result);
+      buildTodaySummaryContent(
+        result
+      );
+
 
     const summaryMessage =
-      await channel.send(content);
+      await channel.send(
+        content
+      );
+
 
     console.log(
-      "✅ 新 Summary 已發送:",
+      `✅ ${config.company} 新 Summary 已發送:`,
       summaryMessage.id
     );
 
+
   } catch (error) {
+
     console.error(
       "REFRESH SUMMARY ERROR:",
       error
@@ -211,25 +351,30 @@ async function refreshTodaySummary(channel) {
 // 支援：
 // +300
 // +300 異常200
-// +300,異常200
-// +300 balance 200 明天
+// +300 异常200
+// +300 卡200
+// +300 bal200 明天
+// +300 balance 200 esok
 // ======================================================
 
 function parseReceiptInput(content) {
-  const text = content.trim();
+
+  const text =
+    content.trim();
+
 
   // ==================================================
-  // 1. 純正常入款
-  //
-  // +300
-  // +300.50
+  // 1. 正常入款
   // ==================================================
 
-  let match = text.match(
-    /^\+(\d+(?:\.\d{1,2})?)$/
-  );
+  let match =
+    text.match(
+      /^\+(\d+(?:\.\d{1,2})?)$/
+    );
+
 
   if (match) {
+
     return {
       ok: true,
       amount: Number(match[1]),
@@ -247,18 +392,18 @@ function parseReceiptInput(content) {
   // +300 異常200
   // +300 异常200
   // +300 卡200
-  //
-  // 也接受：
-  // +300 異常 200
   // +300,异常200
   // +300，卡 200
   // ==================================================
 
-  match = text.match(
-    /^\+(\d+(?:\.\d{1,2})?)\s*[,，]?\s*(?:異常|异常|卡)\s*(\d+(?:\.\d{1,2})?)$/i
-  );
+  match =
+    text.match(
+      /^\+(\d+(?:\.\d{1,2})?)\s*[,，]?\s*(?:異常|异常|卡)\s*(\d+(?:\.\d{1,2})?)$/i
+    );
+
 
   if (match) {
+
     return {
       ok: true,
       amount: Number(match[1]),
@@ -277,15 +422,16 @@ function parseReceiptInput(content) {
   // +300 bal 200 明天
   // +300 balance200 esok
   // +300 balance 200 tomorrow
-  //
-  // 備註可以是任何文字
   // ==================================================
 
-  match = text.match(
-    /^\+(\d+(?:\.\d{1,2})?)\s+(?:bal|balance)\s*(\d+(?:\.\d{1,2})?)(?:\s+(.+))?$/i
-  );
+  match =
+    text.match(
+      /^\+(\d+(?:\.\d{1,2})?)\s+(?:bal|balance)\s*(\d+(?:\.\d{1,2})?)(?:\s+(.+))?$/i
+    );
+
 
   if (match) {
+
     return {
       ok: true,
       amount: Number(match[1]),
@@ -304,59 +450,41 @@ function parseReceiptInput(content) {
 
 
 // ======================================================
-// 撤销入款
+// 撤销入款 Target
 // ======================================================
 
 async function resolveVoidTargetMessageId(message) {
+
   const referencedMessageId =
     message.reference?.messageId;
+
 
   if (!referencedMessageId) {
     return null;
   }
+
 
   const repliedMessage =
     await message.channel.messages.fetch(
       referencedMessageId
     );
 
-  // Reply 指定的 +300 / +300異常200
+
+  // Reply 指定 +金額
   if (!repliedMessage.author.bot) {
     return repliedMessage.id;
   }
 
-  // Reply Bot 的已確認訊息
+
+  // Reply Bot 已確認訊息
   if (
     repliedMessage.reference?.messageId
   ) {
     return repliedMessage.reference.messageId;
   }
 
+
   return null;
-}
-
-
-async function deleteMessageSafely(message) {
-  if (!message) return;
-
-  try {
-    await message.delete();
-  } catch (error) {
-    console.error(
-      "DELETE MESSAGE FAILED:",
-      error?.message || error
-    );
-  }
-}
-
-
-function deleteMessageLater(
-  message,
-  delay = 2000
-) {
-  setTimeout(() => {
-    deleteMessageSafely(message);
-  }, delay);
 }
 
 
@@ -365,12 +493,31 @@ function deleteMessageLater(
 // ======================================================
 
 async function handleVoid(message) {
+
+  const config =
+    getChannelConfig(
+      message.channel.id
+    );
+
+
+  if (!config) {
+
+    await message.reply(
+      "❌ 此頻道尚未設定入款系統"
+    );
+
+    return;
+  }
+
+
   const targetMsgId =
     await resolveVoidTargetMessageId(
       message
     );
 
+
   if (!targetMsgId) {
+
     await message.reply(
       "❌ 請 Reply 要撤銷的入款，再輸入「撤销入款」"
     );
@@ -378,15 +525,26 @@ async function handleVoid(message) {
     return;
   }
 
+
   const operator =
     getReporter(message);
 
+
+  console.log(
+    `VOID COMPANY: ${config.company}`
+  );
+
+
   const result =
-    await postToAppsScript({
-      action: "VOID_ENTRY",
-      msgId: targetMsgId,
-      operator
-    });
+    await postToAppsScript(
+      config.appsScriptUrl,
+      {
+        action: "VOID_ENTRY",
+        msgId: targetMsgId,
+        operator
+      }
+    );
+
 
   console.log(
     "VOID RESULT:",
@@ -394,34 +552,38 @@ async function handleVoid(message) {
   );
 
 
-  // ------------------------------------------
+  // ==================================================
   // 撤销成功
-  // ------------------------------------------
+  // ==================================================
 
   if (
     result.ok &&
     result.voided
   ) {
+
     await message.reply(
       "撤销成功"
     );
+
 
     await refreshTodaySummary(
       message.channel
     );
 
+
     return;
   }
 
 
-  // ------------------------------------------
+  // ==================================================
   // 已經撤销過
-  // ------------------------------------------
+  // ==================================================
 
   if (
     result.ok &&
     result.alreadyVoided
   ) {
+
     await message.reply(
       "⚠️ 此筆已經撤銷過了"
     );
@@ -430,14 +592,15 @@ async function handleVoid(message) {
   }
 
 
-  // ------------------------------------------
+  // ==================================================
   // 找不到
-  // ------------------------------------------
+  // ==================================================
 
   if (
     result.error ===
     "MsgID not found"
   ) {
+
     await message.reply(
       "❌ 找不到這筆入款"
     );
@@ -451,6 +614,7 @@ async function handleVoid(message) {
     result
   );
 
+
   await message.reply(
     "❌ 撤銷失敗，請管理員檢查 Render Logs"
   );
@@ -462,6 +626,23 @@ async function handleVoid(message) {
 // ======================================================
 
 async function handleReceipt(message) {
+
+  const config =
+    getChannelConfig(
+      message.channel.id
+    );
+
+
+  if (!config) {
+
+    await message.reply(
+      "❌ 此頻道尚未設定入款系統"
+    );
+
+    return;
+  }
+
+
   const content =
     message.content.trim();
 
@@ -471,11 +652,14 @@ async function handleReceipt(message) {
   // ==================================================
 
   const parsed =
-    parseReceiptInput(content);
+    parseReceiptInput(
+      content
+    );
 
 
   if (!parsed.ok) {
-await message.reply(
+
+    await message.reply(
 `❌ 格式錯誤
 
 正常：
@@ -487,7 +671,7 @@ await message.reply(
 
 待補：
 +300 bal200 明天`
-);
+    );
 
     return;
   }
@@ -510,6 +694,7 @@ await message.reply(
     !Number.isFinite(amount) ||
     amount <= 0
   ) {
+
     await message.reply(
       "❌ 金額錯誤，請確認正常入款金額大於 0"
     );
@@ -522,6 +707,7 @@ await message.reply(
     abnormalAmount < 0 ||
     pendingAmount < 0
   ) {
+
     await message.reply(
       "❌ 異常或待補金額不能小於 0"
     );
@@ -537,6 +723,7 @@ await message.reply(
   if (
     !message.reference?.messageId
   ) {
+
     await message.reply(
       "❌ 請 Reply 要確認的原始單據，再輸入入款"
     );
@@ -551,17 +738,22 @@ await message.reply(
 
   let originalMessage;
 
+
   try {
+
     originalMessage =
       await message.channel.messages.fetch(
         message.reference.messageId
       );
 
+
   } catch (error) {
+
     console.error(
       "FETCH ORIGINAL ERROR:",
       error
     );
+
 
     await message.reply(
       "❌ 找不到原始單據，請重新 Reply 該訊息"
@@ -571,9 +763,14 @@ await message.reply(
   }
 
 
+  // ==================================================
+  // 不允許 Bot 訊息當原單
+  // ==================================================
+
   if (
     originalMessage.author.bot
   ) {
+
     await message.reply(
       "❌ 請 Reply 原始單據，不要 Reply Bot 訊息"
     );
@@ -605,11 +802,15 @@ await message.reply(
   // ==================================================
 
   const payload = {
+
     owner,
+
     amount,
 
     abnormalAmount,
+
     pendingAmount,
+
     note,
 
     originalMsgId:
@@ -623,13 +824,23 @@ await message.reply(
 
 
   console.log(
+    `RECEIPT COMPANY: ${config.company}`
+  );
+
+
+  console.log(
     "RECEIPT PAYLOAD:",
     payload
   );
 
 
+  // ==================================================
+  // 發送到該公司的 Apps Script
+  // ==================================================
+
   const result =
     await postToAppsScript(
+      config.appsScriptUrl,
       payload
     );
 
@@ -641,13 +852,14 @@ await message.reply(
 
 
   // ==================================================
-  // 真正重複訊息
+  // 防真正重複
   // ==================================================
 
   if (
     result.ok &&
     result.duplicate
   ) {
+
     console.log(
       "Duplicate receipt ignored"
     );
@@ -666,10 +878,11 @@ await message.reply(
       `✅ 已確認入款：RM ${formatMoney(amount)} ｜ ${owner}`;
 
 
-    // 異常只顯示提醒
+    // 異常 / 卡
     if (
       type === "abnormal"
     ) {
+
       replyText +=
         `\n⚠️ 異常：RM ${formatMoney(abnormalAmount)}（僅記錄）`;
     }
@@ -679,10 +892,13 @@ await message.reply(
     if (
       type === "balance"
     ) {
+
       replyText +=
         `\n🕒 待補：RM ${formatMoney(pendingAmount)}`;
 
+
       if (note) {
+
         replyText +=
           ` ｜ ${note}`;
       }
@@ -694,8 +910,11 @@ await message.reply(
     );
 
 
-    // 每成功一筆發一張新的 Summary
-    // Summary 只會計算 amount
+    // ==================================================
+    // 每成功一筆
+    // 發該公司的最新 Summary
+    // ==================================================
+
     await refreshTodaySummary(
       message.channel
     );
@@ -714,6 +933,7 @@ await message.reply(
     result
   );
 
+
   await message.reply(
     "❌ 入款失敗，請管理員檢查 Render Logs"
   );
@@ -721,61 +941,121 @@ await message.reply(
 
 
 // ======================================================
-// Discord Events
+// Discord Ready
 // ======================================================
 
 client.once(
   "clientReady",
   () => {
+
     console.log(
       `Bot 已上線：${client.user.tag}`
+    );
+
+
+    console.log(
+      "===== 六公司 Receipt Routing ====="
+    );
+
+    console.log(
+      "LV   -> 1530062853577506816"
+    );
+
+    console.log(
+      "LT   -> 1536957257663909938"
+    );
+
+    console.log(
+      "MMC  -> 1536957294506676355"
+    );
+
+    console.log(
+      "鑫宸 -> 1536957455995502634"
+    );
+
+    console.log(
+      "LU   -> 1536958163209822271"
+    );
+
+    console.log(
+      "LS   -> 1536958281216688168"
     );
   }
 );
 
 
-  client.on(
+// ======================================================
+// Message Create
+// ======================================================
+
+client.on(
   "messageCreate",
   async message => {
+
     try {
-      // Bot 自己的訊息不處理
-      if (message.author.bot) {
+
+      // ==================================================
+      // Bot 自己不處理
+      // ==================================================
+
+      if (
+        message.author.bot
+      ) {
         return;
       }
+
 
       const content =
         message.content.trim();
 
-      // ======================================================
-      // 判斷是不是入款系統操作
-      // 包括：
-      // +0
-      // +300
-      // +300 異常200
-      // +300 卡200
-      // +300 bal200 明天
-      // 撤销入款
-      // ======================================================
+
+      // ==================================================
+      // 是否屬於 Receipt 指令
+      // ==================================================
 
       const isReceiptOperation =
         content.startsWith("+") ||
         isVoidCommand(content);
 
-      // 普通聊天、圖片、其他訊息不處理
-      if (!isReceiptOperation) {
+
+      if (
+        !isReceiptOperation
+      ) {
         return;
       }
 
-      // ======================================================
-      // 第三方身份組權限檢查
-      // ======================================================
+
+      // ==================================================
+      // 只允許六個設定好的 Channel
+      // ==================================================
+
+      const config =
+        getChannelConfig(
+          message.channel.id
+        );
+
+
+      if (!config) {
+
+        // 不在 Receipt Channel
+        // 直接忽略，不影響其他頻道
+
+        return;
+      }
+
+
+      // ==================================================
+      // 第三方 Role 權限
+      // ==================================================
 
       const hasAllowedRole =
         message.member?.roles?.cache?.has(
           ALLOWED_ROLE_ID
         );
 
+
       if (!hasAllowedRole) {
+
         await message.reply(
           "❌ 你沒有權限操作入款系統"
         );
@@ -783,46 +1063,74 @@ client.once(
         return;
       }
 
-      // ======================================================
-      // +0：查詢目前帳務日 Summary
-      //
-      // 不需要 Reply 收據
-      // 不寫入 Sheet
-      // 不增加筆數
-      // 只顯示目前帳務日最新 5 筆及總額
-      // ======================================================
 
-      if (content === "+0") {
+      // ==================================================
+      // +0
+      //
+      // 不寫 Sheet
+      // 不增加筆數
+      // 直接取得該公司目前帳務日 Summary
+      // ==================================================
+
+      if (
+        content === "+0"
+      ) {
+
+        console.log(
+          `+0 SUMMARY REQUEST: ${config.company}`
+        );
+
+
         await refreshTodaySummary(
           message.channel
         );
 
+
         return;
       }
 
-      // ======================================================
+
+      // ==================================================
       // 撤销入款
-      // ======================================================
+      // ==================================================
 
-      if (isVoidCommand(content)) {
-        await handleVoid(message);
+      if (
+        isVoidCommand(content)
+      ) {
+
+        await handleVoid(
+          message
+        );
+
+
         return;
       }
 
-      // ======================================================
-      // 正常入款 / 異常 / 卡 / Balance
-      // ======================================================
 
-      if (content.startsWith("+")) {
-        await handleReceipt(message);
+      // ==================================================
+      // 正常 + 入款
+      // ==================================================
+
+      if (
+        content.startsWith("+")
+      ) {
+
+        await handleReceipt(
+          message
+        );
+
+
         return;
       }
+
 
     } catch (error) {
+
       console.error(
         "MESSAGE CREATE ERROR:",
         error
       );
+
 
       await message.reply(
         "❌ 系統錯誤，請管理員檢查 Render Logs"
@@ -833,7 +1141,7 @@ client.once(
 
 
 // ======================================================
-// 禁止 Edit
+// 禁止 Edit 已入賬內容
 // ======================================================
 
 client.on(
@@ -842,16 +1150,20 @@ client.on(
     oldMessage,
     newMessage
   ) => {
+
     try {
+
       if (
         newMessage.author?.bot
       ) {
         return;
       }
 
+
       const newContent =
         newMessage.content?.trim() ||
         "";
+
 
       if (
         !newContent.startsWith("+")
@@ -859,12 +1171,27 @@ client.on(
         return;
       }
 
+
+      // 只有六個 Receipt Channel 才處理 Edit
+      const config =
+        getChannelConfig(
+          newMessage.channel.id
+        );
+
+
+      if (!config) {
+        return;
+      }
+
+
       await newMessage.reply(
         "⚠️ 已入賬報數不接受 Edit 修改。\n" +
         "若資料錯誤，請 Reply 原報數輸入「撤销入款」。"
       );
 
+
     } catch (error) {
+
       console.error(
         "MESSAGE UPDATE ERROR:",
         error
