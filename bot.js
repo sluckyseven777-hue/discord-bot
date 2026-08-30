@@ -1,99 +1,159 @@
 const { Client, GatewayIntentBits } = require("discord.js");
 
 // ======================================================
-// 系統設定
+// Receipt Bot - Multi Service Universal Version
+//
+// 同一份 bot.js 可以給：
+// XiaoYi
+// MY124
+// YiHui
+//
+// 每個 Render Service 只需要設定自己的 Environment Variables
+// ======================================================
+
+
+// ======================================================
+// 基本設定
 // ======================================================
 
 const TOKEN = process.env.TOKEN;
 const ALLOWED_ROLE_ID = process.env.ALLOWED_ROLE_ID;
 
-// 六間公司 Apps Script
-const APPS_SCRIPT_URL_LV = process.env.APPS_SCRIPT_URL_LV;
-const APPS_SCRIPT_URL_LT = process.env.APPS_SCRIPT_URL_LT;
-const APPS_SCRIPT_URL_MMC = process.env.APPS_SCRIPT_URL_MMC;
-const APPS_SCRIPT_URL_XC = process.env.APPS_SCRIPT_URL_XC;
-const APPS_SCRIPT_URL_LU = process.env.APPS_SCRIPT_URL_LU;
-const APPS_SCRIPT_URL_LS = process.env.APPS_SCRIPT_URL_LS;
+
+// ======================================================
+// 公司設定
+//
+// 有設定 Channel ID + Apps Script URL 的公司才會啟用
+// 沒有設定就自動忽略
+// ======================================================
+
+const COMPANY_ENV_CONFIG = [
+  {
+    company: "LV",
+    channelId: process.env.CHANNEL_ID_LV,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_LV
+  },
+  {
+    company: "LT",
+    channelId: process.env.CHANNEL_ID_LT,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_LT
+  },
+  {
+    company: "MMC",
+    channelId: process.env.CHANNEL_ID_MMC,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_MMC
+  },
+  {
+    company: "鑫宸",
+    channelId: process.env.CHANNEL_ID_XC,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_XC
+  },
+  {
+    company: "LU",
+    channelId: process.env.CHANNEL_ID_LU,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_LU
+  },
+  {
+    company: "LS",
+    channelId: process.env.CHANNEL_ID_LS,
+    appsScriptUrl: process.env.APPS_SCRIPT_URL_LS
+  }
+];
 
 
 // ======================================================
-// 必要環境變數檢查
+// 必要環境變數
 // ======================================================
 
 if (!TOKEN) {
-  throw new Error("缺少 Render 環境變量：TOKEN");
+  throw new Error(
+    "缺少 Render 環境變量：TOKEN"
+  );
 }
 
 if (!ALLOWED_ROLE_ID) {
-  throw new Error("缺少 Render 環境變量：ALLOWED_ROLE_ID");
-}
-
-if (!APPS_SCRIPT_URL_LV) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LV");
-}
-
-if (!APPS_SCRIPT_URL_LT) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LT");
-}
-
-if (!APPS_SCRIPT_URL_MMC) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_MMC");
-}
-
-if (!APPS_SCRIPT_URL_XC) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_XC");
-}
-
-if (!APPS_SCRIPT_URL_LU) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LU");
-}
-
-if (!APPS_SCRIPT_URL_LS) {
-  throw new Error("缺少 Render 環境變量：APPS_SCRIPT_URL_LS");
+  throw new Error(
+    "缺少 Render 環境變量：ALLOWED_ROLE_ID"
+  );
 }
 
 
 // ======================================================
-// 六公司 Channel 對應
+// 建立 Channel Routing
+//
+// 規則：
+//
+// Channel + URL 都有
+// → 啟用
+//
+// 兩個都沒有
+// → 忽略
+//
+// 只有其中一個
+// → 啟動失敗，避免入錯 Sheet
 // ======================================================
 
-const CHANNEL_CONFIG = {
-  // LV
-  "1530062853577506816": {
-    company: "LV",
-    appsScriptUrl: APPS_SCRIPT_URL_LV
-  },
+const CHANNEL_CONFIG = {};
 
-  // LT
-  "1536957257663909938": {
-    company: "LT",
-    appsScriptUrl: APPS_SCRIPT_URL_LT
-  },
+for (const item of COMPANY_ENV_CONFIG) {
 
-  // MMC
-  "1536957294506676355": {
-    company: "MMC",
-    appsScriptUrl: APPS_SCRIPT_URL_MMC
-  },
+  const channelId =
+    String(item.channelId || "").trim();
 
-  // 鑫宸
-  "1536957455995502634": {
-    company: "鑫宸",
-    appsScriptUrl: APPS_SCRIPT_URL_XC
-  },
+  const appsScriptUrl =
+    String(item.appsScriptUrl || "").trim();
 
-  // LU
-  "1536958163209822271": {
-    company: "LU",
-    appsScriptUrl: APPS_SCRIPT_URL_LU
-  },
 
-  // LS
-  "1536958281216688168": {
-    company: "LS",
-    appsScriptUrl: APPS_SCRIPT_URL_LS
+  // 兩個都沒設定
+  // 代表這個第三方沒有這家公司
+  if (!channelId && !appsScriptUrl) {
+    continue;
   }
-};
+
+
+  // 有 Channel 沒 URL
+  if (channelId && !appsScriptUrl) {
+    throw new Error(
+      `${item.company} 已設定 Channel ID，但缺少 Apps Script URL`
+    );
+  }
+
+
+  // 有 URL 沒 Channel
+  if (!channelId && appsScriptUrl) {
+    throw new Error(
+      `${item.company} 已設定 Apps Script URL，但缺少 Channel ID`
+    );
+  }
+
+
+  // 防止同一個 Channel 被重複設定
+  if (CHANNEL_CONFIG[channelId]) {
+    throw new Error(
+      `Channel ID 重複設定：${channelId}`
+    );
+  }
+
+
+  CHANNEL_CONFIG[channelId] = {
+    company: item.company,
+    appsScriptUrl
+  };
+}
+
+
+// ======================================================
+// 至少需要一家公司
+// ======================================================
+
+if (
+  Object.keys(CHANNEL_CONFIG).length === 0
+) {
+
+  throw new Error(
+    "沒有任何公司完成 Channel ID + Apps Script URL 設定"
+  );
+}
 
 
 // ======================================================
@@ -114,6 +174,7 @@ const client = new Client({
 // ======================================================
 
 function getReporter(message) {
+
   return (
     message.member?.displayName ||
     message.author.globalName ||
@@ -123,25 +184,41 @@ function getReporter(message) {
 
 
 function isVoidCommand(content) {
+
   return [
     "撤销入款",
     "撤銷入款"
-  ].includes(content.trim());
+  ].includes(
+    content.trim()
+  );
 }
 
 
 function formatMoney(value) {
-  const num = Number(value || 0);
 
-  return num.toLocaleString("en-US", {
-    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
-    maximumFractionDigits: 2
-  });
+  const num =
+    Number(value || 0);
+
+  return num.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits:
+        Number.isInteger(num)
+          ? 0
+          : 2,
+
+      maximumFractionDigits: 2
+    }
+  );
 }
 
 
 function getChannelConfig(channelId) {
-  return CHANNEL_CONFIG[channelId] || null;
+
+  return (
+    CHANNEL_CONFIG[channelId] ||
+    null
+  );
 }
 
 
@@ -149,46 +226,75 @@ function getChannelConfig(channelId) {
 // Apps Script API
 // ======================================================
 
-async function postToAppsScript(appsScriptUrl, payload) {
+async function postToAppsScript(
+  appsScriptUrl,
+  payload
+) {
+
   try {
 
     if (!appsScriptUrl) {
+
       return {
         ok: false,
-        error: "Apps Script URL not configured"
+        error:
+          "Apps Script URL not configured"
       };
     }
 
-    const response = await fetch(appsScriptUrl, {
-      method: "POST",
-      redirect: "follow",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      body: JSON.stringify(payload)
-    });
 
-    const responseText = await response.text();
+    const response =
+      await fetch(
+        appsScriptUrl,
+        {
+          method: "POST",
+
+          redirect: "follow",
+
+          headers: {
+            "Content-Type":
+              "text/plain;charset=utf-8"
+          },
+
+          body:
+            JSON.stringify(payload)
+        }
+      );
+
+
+    const responseText =
+      await response.text();
+
 
     console.log(
       "APPS HTTP STATUS:",
       response.status
     );
 
+
     console.log(
       "APPS RAW RESPONSE:",
       responseText.slice(0, 500)
     );
 
+
     try {
-      return JSON.parse(responseText);
+
+      return JSON.parse(
+        responseText
+      );
+
     } catch {
+
       return {
         ok: false,
-        error: "Apps Script 回傳的內容不是 JSON",
-        raw: responseText.slice(0, 500)
+        error:
+          "Apps Script 回傳的內容不是 JSON",
+        raw:
+          responseText.slice(0, 500)
       };
     }
+
 
   } catch (error) {
 
@@ -197,31 +303,43 @@ async function postToAppsScript(appsScriptUrl, payload) {
       error
     );
 
+
     return {
       ok: false,
-      error: error?.message || String(error)
+      error:
+        error?.message ||
+        String(error)
     };
   }
 }
 
 
 // ======================================================
-// 今日 Summary 內容
+// 今日 Summary
 // ======================================================
 
-function buildTodaySummaryContent(summary) {
+function buildTodaySummaryContent(
+  summary
+) {
 
   const entries =
     summary.entries || [];
+
 
   const entryLines =
     entries.map(item => {
 
       const amount =
-        Number(item.amount || 0);
+        Number(
+          item.amount || 0
+        );
+
 
       const netAmount =
-        Number(item.netAmount || 0);
+        Number(
+          item.netAmount || 0
+        );
+
 
       return (
         `${item.time} ` +
@@ -232,7 +350,9 @@ function buildTodaySummaryContent(summary) {
 
 
   const feePercent =
-    Number(summary.feeRate || 0) * 100;
+    Number(
+      summary.feeRate || 0
+    ) * 100;
 
 
   return (
@@ -255,20 +375,28 @@ ${entryLines.length
 
 
 // ======================================================
-// 每次發一張新的 Summary
+// 發送新 Summary
 // ======================================================
 
-async function refreshTodaySummary(channel) {
+async function refreshTodaySummary(
+  channel
+) {
+
   try {
 
     const config =
-      getChannelConfig(channel.id);
+      getChannelConfig(
+        channel.id
+      );
+
 
     if (!config) {
+
       console.error(
         "SUMMARY CHANNEL NOT CONFIGURED:",
         channel.id
       );
+
       return;
     }
 
@@ -282,7 +410,8 @@ async function refreshTodaySummary(channel) {
       await postToAppsScript(
         config.appsScriptUrl,
         {
-          action: "GET_TODAY_SUMMARY"
+          action:
+            "GET_TODAY_SUMMARY"
         }
       );
 
@@ -348,11 +477,12 @@ async function refreshTodaySummary(channel) {
 // ======================================================
 // 入款文字解析
 //
-// 支援：
 // +300
+//
 // +300 異常200
 // +300 异常200
 // +300 卡200
+//
 // +300 bal200 明天
 // +300 balance 200 esok
 // ======================================================
@@ -364,7 +494,7 @@ function parseReceiptInput(content) {
 
 
   // ==================================================
-  // 1. 正常入款
+  // 正常
   // ==================================================
 
   let match =
@@ -377,7 +507,8 @@ function parseReceiptInput(content) {
 
     return {
       ok: true,
-      amount: Number(match[1]),
+      amount:
+        Number(match[1]),
       abnormalAmount: 0,
       pendingAmount: 0,
       note: "",
@@ -387,13 +518,7 @@ function parseReceiptInput(content) {
 
 
   // ==================================================
-  // 2. 異常 / 异常 / 卡
-  //
-  // +300 異常200
-  // +300 异常200
-  // +300 卡200
-  // +300,异常200
-  // +300，卡 200
+  // 異常 / 卡
   // ==================================================
 
   match =
@@ -406,8 +531,10 @@ function parseReceiptInput(content) {
 
     return {
       ok: true,
-      amount: Number(match[1]),
-      abnormalAmount: Number(match[2]),
+      amount:
+        Number(match[1]),
+      abnormalAmount:
+        Number(match[2]),
       pendingAmount: 0,
       note: "異常",
       type: "abnormal"
@@ -416,12 +543,7 @@ function parseReceiptInput(content) {
 
 
   // ==================================================
-  // 3. BAL / BALANCE
-  //
-  // +300 bal200 明天
-  // +300 bal 200 明天
-  // +300 balance200 esok
-  // +300 balance 200 tomorrow
+  // BAL / BALANCE
   // ==================================================
 
   match =
@@ -434,10 +556,13 @@ function parseReceiptInput(content) {
 
     return {
       ok: true,
-      amount: Number(match[1]),
+      amount:
+        Number(match[1]),
       abnormalAmount: 0,
-      pendingAmount: Number(match[2]),
-      note: (match[3] || "").trim(),
+      pendingAmount:
+        Number(match[2]),
+      note:
+        (match[3] || "").trim(),
       type: "balance"
     };
   }
@@ -450,10 +575,12 @@ function parseReceiptInput(content) {
 
 
 // ======================================================
-// 撤销入款 Target
+// 撤銷 Target
 // ======================================================
 
-async function resolveVoidTargetMessageId(message) {
+async function resolveVoidTargetMessageId(
+  message
+) {
 
   const referencedMessageId =
     message.reference?.messageId;
@@ -472,15 +599,19 @@ async function resolveVoidTargetMessageId(message) {
 
   // Reply 指定 +金額
   if (!repliedMessage.author.bot) {
+
     return repliedMessage.id;
   }
 
 
-  // Reply Bot 已確認訊息
+  // Reply Bot 確認訊息
   if (
     repliedMessage.reference?.messageId
   ) {
-    return repliedMessage.reference.messageId;
+
+    return (
+      repliedMessage.reference.messageId
+    );
   }
 
 
@@ -489,7 +620,7 @@ async function resolveVoidTargetMessageId(message) {
 
 
 // ======================================================
-// 處理撤销入款
+// 撤銷
 // ======================================================
 
 async function handleVoid(message) {
@@ -539,8 +670,12 @@ async function handleVoid(message) {
     await postToAppsScript(
       config.appsScriptUrl,
       {
-        action: "VOID_ENTRY",
-        msgId: targetMsgId,
+        action:
+          "VOID_ENTRY",
+
+        msgId:
+          targetMsgId,
+
         operator
       }
     );
@@ -553,7 +688,7 @@ async function handleVoid(message) {
 
 
   // ==================================================
-  // 撤销成功
+  // 成功
   // ==================================================
 
   if (
@@ -576,7 +711,7 @@ async function handleVoid(message) {
 
 
   // ==================================================
-  // 已經撤销過
+  // 已撤銷
   // ==================================================
 
   if (
@@ -647,10 +782,6 @@ async function handleReceipt(message) {
     message.content.trim();
 
 
-  // ==================================================
-  // 解析格式
-  // ==================================================
-
   const parsed =
     parseReceiptInput(
       content
@@ -717,7 +848,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 必須 Reply 原始單據
+  // 必須 Reply 原始 Receipt
   // ==================================================
 
   if (
@@ -731,10 +862,6 @@ async function handleReceipt(message) {
     return;
   }
 
-
-  // ==================================================
-  // 取得原始單據
-  // ==================================================
 
   let originalMessage;
 
@@ -764,7 +891,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 不允許 Bot 訊息當原單
+  // 不允許 Bot 訊息
   // ==================================================
 
   if (
@@ -834,10 +961,6 @@ async function handleReceipt(message) {
   );
 
 
-  // ==================================================
-  // 發送到該公司的 Apps Script
-  // ==================================================
-
   const result =
     await postToAppsScript(
       config.appsScriptUrl,
@@ -852,7 +975,7 @@ async function handleReceipt(message) {
 
 
   // ==================================================
-  // 防真正重複
+  // Duplicate
   // ==================================================
 
   if (
@@ -878,7 +1001,6 @@ async function handleReceipt(message) {
       `✅ 已確認入款：RM ${formatMoney(amount)} ｜ ${owner}`;
 
 
-    // 異常 / 卡
     if (
       type === "abnormal"
     ) {
@@ -888,7 +1010,6 @@ async function handleReceipt(message) {
     }
 
 
-    // Balance
     if (
       type === "balance"
     ) {
@@ -910,10 +1031,8 @@ async function handleReceipt(message) {
     );
 
 
-    // ==================================================
     // 每成功一筆
-    // 發該公司的最新 Summary
-    // ==================================================
+    // 發一張新 Summary
 
     await refreshTodaySummary(
       message.channel
@@ -923,10 +1042,6 @@ async function handleReceipt(message) {
     return;
   }
 
-
-  // ==================================================
-  // 失敗
-  // ==================================================
 
   console.error(
     "RECEIPT FAILED:",
@@ -954,31 +1069,27 @@ client.once(
 
 
     console.log(
-      "===== 六公司 Receipt Routing ====="
+      "===== Receipt Routing ====="
     );
 
-    console.log(
-      "LV   -> 1530062853577506816"
-    );
+
+    for (
+      const [
+        channelId,
+        config
+      ] of Object.entries(
+        CHANNEL_CONFIG
+      )
+    ) {
+
+      console.log(
+        `${config.company} -> ${channelId}`
+      );
+    }
+
 
     console.log(
-      "LT   -> 1536957257663909938"
-    );
-
-    console.log(
-      "MMC  -> 1536957294506676355"
-    );
-
-    console.log(
-      "鑫宸 -> 1536957455995502634"
-    );
-
-    console.log(
-      "LU   -> 1536958163209822271"
-    );
-
-    console.log(
-      "LS   -> 1536958281216688168"
+      `允許操作 Role -> ${ALLOWED_ROLE_ID}`
     );
   }
 );
@@ -994,10 +1105,7 @@ client.on(
 
     try {
 
-      // ==================================================
-      // Bot 自己不處理
-      // ==================================================
-
+      // Bot 不處理
       if (
         message.author.bot
       ) {
@@ -1010,7 +1118,7 @@ client.on(
 
 
       // ==================================================
-      // 是否屬於 Receipt 指令
+      // 是否 Receipt 指令
       // ==================================================
 
       const isReceiptOperation =
@@ -1018,15 +1126,13 @@ client.on(
         isVoidCommand(content);
 
 
-      if (
-        !isReceiptOperation
-      ) {
+      if (!isReceiptOperation) {
         return;
       }
 
 
       // ==================================================
-      // 只允許六個設定好的 Channel
+      // 是否這個 Service 管理的 Channel
       // ==================================================
 
       const config =
@@ -1037,15 +1143,15 @@ client.on(
 
       if (!config) {
 
-        // 不在 Receipt Channel
-        // 直接忽略，不影響其他頻道
+        // 不屬於這個第三方
+        // 完全忽略
 
         return;
       }
 
 
       // ==================================================
-      // 第三方 Role 權限
+      // Role
       // ==================================================
 
       const hasAllowedRole =
@@ -1066,10 +1172,6 @@ client.on(
 
       // ==================================================
       // +0
-      //
-      // 不寫 Sheet
-      // 不增加筆數
-      // 直接取得該公司目前帳務日 Summary
       // ==================================================
 
       if (
@@ -1091,7 +1193,7 @@ client.on(
 
 
       // ==================================================
-      // 撤销入款
+      // 撤銷
       // ==================================================
 
       if (
@@ -1108,7 +1210,7 @@ client.on(
 
 
       // ==================================================
-      // 正常 + 入款
+      // 入款
       // ==================================================
 
       if (
@@ -1172,7 +1274,9 @@ client.on(
       }
 
 
-      // 只有六個 Receipt Channel 才處理 Edit
+      // 只有這個 Service
+      // 設定的 Receipt Channel 才處理
+
       const config =
         getChannelConfig(
           newMessage.channel.id
