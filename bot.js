@@ -71,7 +71,7 @@ const COMPANY_ENV_CONFIG = [
   {
     company: "TZ",
   channelId: process.env.CHANNEL_ID_TZ,
-  appsScriptUrl: process.env.APPS_SCRIPT_URL_T
+  appsScriptUrl: process.env.APPS_SCRIPT_URL_TZ
   }
 ];
 
