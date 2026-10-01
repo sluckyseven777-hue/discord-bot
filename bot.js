@@ -69,9 +69,9 @@ const COMPANY_ENV_CONFIG = [
     appsScriptUrl: process.env.APPS_SCRIPT_URL_LU
   },
   {
-    company: "LS",
-    channelId: process.env.CHANNEL_ID_LS,
-    appsScriptUrl: process.env.APPS_SCRIPT_URL_LS
+    company: "TZ",
+  channelId: process.env.CHANNEL_ID_TZ,
+  appsScriptUrl: process.env.APPS_SCRIPT_URL_T
   }
 ];
 
